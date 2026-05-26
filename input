@@ -1,0 +1,6 @@
+&input_files
+    geom_eq="aaaaaaaaaaa"
+    hess_eq="bbbbbbbbbbbbb"
+    traj="cccccccccccccccc"
+    hess="dddddddddddddd"
+/

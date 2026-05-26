@@ -15,8 +15,11 @@ The expected workflow:
 
 ## TO DO
 
-- [ ] input reading
+- [x] input reading
 - [ ] equilibrium reading
+   - [ ] Mass database
+   - [ ] Symbol matching
+   - [ ] actual reading
 - [ ] normal modes
 - [ ] trajectory into normal modes
 - [ ] evolve width
