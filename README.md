@@ -16,11 +16,11 @@ The expected workflow:
 ## TO DO
 
 - [x] input reading
-- [ ] equilibrium reading
-   - [ ] Mass database
-   - [ ] Symbol matching
-   - [ ] actual reading
-- [ ] normal modes
+- [x] equilibrium reading
+   - [x] Mass database
+   - [x] Symbol matching
+   - [x] actual reading
+- [x] normal modes
 - [ ] trajectory into normal modes
 - [ ] evolve width
 - [ ] correlation function w/ MAPLE

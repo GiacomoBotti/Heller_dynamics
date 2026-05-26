@@ -1,6 +1,5 @@
 &input_files
-    geom_eq="aaaaaaaaaaa"
-    hess_eq="bbbbbbbbbbbbb"
+    geom_eq="h2o_opt.xyz"
     traj="cccccccccccccccc"
     hess="dddddddddddddd"
 /
