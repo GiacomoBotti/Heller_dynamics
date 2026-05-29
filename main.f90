@@ -11,15 +11,16 @@
 
       integer :: i,j,k
       integer :: nat,ncart,nvib,steps
+      real*8 :: Epot,L,dt
       real*8, allocatable, dimension(:) :: xeq,veq,xm,ww,x,v
       real*8, allocatable, dimension(:) :: qrt,prt,qvib,pvib 
       real*8, allocatable, dimension(:,:) :: hesseq,cnorm,tmp,hessian
       real*8, allocatable, dimension(:,:) :: Hrt,Hvib 
       character(len=2), allocatable, dimension(:) :: symb
-      character(len=50) :: geom_eq,hess_eq,traj,hess,energy
+      character(len=50) :: geom_eq,hess_eq,traj,hess,energy,output
 
-      namelist /input_files/ geom_eq,hess_eq,traj,hess,energy
-      namelist /trajectory/ steps
+      namelist /input_files/ geom_eq,hess_eq,traj,hess,energy,output
+      namelist /trajectory/ steps,dt
 
       call execute_command_line('cat banner.txt')
 
@@ -35,7 +36,8 @@
       hess_eq="Hessian_flat.out"
       traj="parsed_log_traj.xyz"
       hess="Hessian_traj.out"
-      energy="
+      energy="energies.dat"
+      output="correlation.dat"
 
       read(111,input_files)
 
@@ -43,6 +45,7 @@
       write(*,*) "Equilibrium Hessian from:  ", hess_eq
       write(*,*) "Trajectory from:           ", traj
       write(*,*) "Hessian matrices from:     ", hess
+      write(*,*) "Potential energy from:     ", energy
 
 !_____Masses and equilibrium geometry___________________________________
 
@@ -57,7 +60,7 @@
       allocate(xm(ncart),xeq(ncart),veq(ncart),hesseq(ncart,ncart))    
       allocate(x(ncart),v(ncart),hessian(ncart,ncart))    
       allocate(qrt(ncart),prt(ncart),Hrt(ncart,ncart))    
-      allocate(qvib(nvib),pvib(nvib),Hvib(nvib,nvib))    
+      allocate(qvib(nvib),pvib(nvib),Hvib(nvib,nvib))
       allocate(ww(ncart),cnorm(ncart,ncart),tmp(ncart,ncart))    
 
       read(112,*)
@@ -87,7 +90,7 @@
             stop
         END SELECT    
       end do
-      
+
       write(*,*) "@---------------------------------------------------@"
       write(*,*) "Equilibrium Geometry:"
       do i = 1,nat
@@ -144,7 +147,7 @@
       do i = 1,ncart
          write(*,*) "Mode[",i,"]", dsqrt(abs(Hrt(i,i)))*Ha2cmm1
       end do
-      write(*,*) "Check Diagonalization:", Hrt(2,3)
+      write(*,*) "This value should be zero:", Hrt(2,3)
  
 
 
@@ -152,14 +155,57 @@
  
       open(unit=114,file=traj,status="old",action="read")
       open(unit=115,file=hess,status="old",action="read")
+      open(unit=116,file=energy,status="old",action="read")
 
       steps = 2500
+      dt = 8.2682749151502d0 
       read(111,trajectory)
 
       write(*,*) "@---------------------------------------------------@"
       write(*,*) "Reading", steps, "steps of dynamics"
+      write(*,*) "of",dt,"Dau each"
 
-      do k = 1,steps
+      ! INITIAL CONDITIONS
+      read(113,*) 
+      read(114,*) 
+      do i = 1,nat
+      read(114,*) symb(i), x(3*i-2:3*i), v(3*i-2:3*i)
+      end do
+      read(115,*)
+      read(115,*)
+      do i = 1,ncart
+         do j = 1,i
+            read(115,*) hessian(j,i)
+             hessian(i,j) = hessian(j,i)
+         end do
+      end do
+      read(116,*) Epot 
+      ! Convert to AU
+      x(:) = x(:)/bohr_radius
+      v(:) = v(:)!*FROMangTOau_vel Velocities are already in atomic units
+      ! Mass scale
+      x(:) = x(:)*dsqrt(xm(:))
+      v(:) = v(:)*dsqrt(xm(:))
+      ! Normal modes
+      qrt = matmul(transpose(cnorm),x)
+      prt = matmul(transpose(cnorm),v)
+      tmp = matmul(hessian,cnorm)
+      Hrt = matmul(transpose(cnorm),tmp)
+      ! Vibrational only
+      qvib(:) = qrt(1:nvib)
+      pvib(:) = prt(1:nvib)
+      Hvib(:,:) = Hrt(1:nvib,1:nvib)
+
+      q0 = qvib
+      p0 = pvib
+
+      do i = 1,nvib
+        A0 = dsqrt(ww(6+i))
+      end do 
+
+      ! COMPUTE C(0)
+
+      do k = 2,steps
         read(114,*) 
         read(114,*) 
         do i = 1,nat
@@ -173,6 +219,7 @@
                hessian(i,j) = hessian(j,i)
            end do
         end do
+        read(116,*) Epot 
         ! Convert to AU
         x(:) = x(:)/bohr_radius
         v(:) = v(:)!*FROMangTOau_vel Velocities are already in atomic units
@@ -188,6 +235,9 @@
         qvib(:) = qrt(1:nvib)
         pvib(:) = prt(1:nvib)
         Hvib(:,:) = Hrt(1:nvib,1:nvib)
+        ! Evolves Delta gamma
+        L = dot_product(pvib,pvib) - V
+        ! Evolves width
 
 
 
@@ -201,6 +251,9 @@
       write(*,*) "@---------------------------------------------------@"
       write(*,*) "Final Hessian (1,1) entry:"
       write(*,*) hessian(1,1)
+      write(*,*) "@---------------------------------------------------@"
+      write(*,*) "Final Energy entry:"
+      write(*,*) Epot
       
 
 
@@ -213,5 +266,6 @@
       close(113)
       close(114)
       close(115)
+      close(116)
 
       end program heller
