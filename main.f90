@@ -9,14 +9,17 @@
 
       implicit none
 
-      integer :: i,j
-      integer :: nat,ncart,nvib
-      real*8, allocatable, dimension(:) :: xeq,veq,xm,ww
-      real*8, allocatable, dimension(:,:) :: hesseq,cnorm,tmp
+      integer :: i,j,k
+      integer :: nat,ncart,nvib,steps
+      real*8, allocatable, dimension(:) :: xeq,veq,xm,ww,x,v
+      real*8, allocatable, dimension(:) :: qrt,prt,qvib,pvib 
+      real*8, allocatable, dimension(:,:) :: hesseq,cnorm,tmp,hessian
+      real*8, allocatable, dimension(:,:) :: Hrt,Hvib 
       character(len=2), allocatable, dimension(:) :: symb
-      character(len=50) :: geom_eq,hess_eq,traj,hess
+      character(len=50) :: geom_eq,hess_eq,traj,hess,energy
 
-      namelist /input_files/ geom_eq,hess_eq,traj,hess
+      namelist /input_files/ geom_eq,hess_eq,traj,hess,energy
+      namelist /trajectory/ steps
 
       call execute_command_line('cat banner.txt')
 
@@ -32,6 +35,7 @@
       hess_eq="Hessian_flat.out"
       traj="parsed_log_traj.xyz"
       hess="Hessian_traj.out"
+      energy="
 
       read(111,input_files)
 
@@ -51,6 +55,9 @@
 
       allocate(symb(nat))                                           
       allocate(xm(ncart),xeq(ncart),veq(ncart),hesseq(ncart,ncart))    
+      allocate(x(ncart),v(ncart),hessian(ncart,ncart))    
+      allocate(qrt(ncart),prt(ncart),Hrt(ncart,ncart))    
+      allocate(qvib(nvib),pvib(nvib),Hvib(nvib,nvib))    
       allocate(ww(ncart),cnorm(ncart,ncart),tmp(ncart,ncart))    
 
       read(112,*)
@@ -125,20 +132,81 @@
          enddo
       enddo
       
+      tmp = matmul(hesseq,cnorm)
+      Hrt = matmul(transpose(cnorm),tmp)
       write(*,*) "@---------------------------------------------------@"
       write(*,*) "Harmonic frequencies"
       do i = 1,nvib
          write(*,*) "Mode[",i,"]", dsqrt(ww(6+i))*Ha2cmm1
       end do
+      write(*,*) "@---------------------------------------------------@"
+      write(*,*) "Harmonic frequencies from NM Hessian"
+      do i = 1,ncart
+         write(*,*) "Mode[",i,"]", dsqrt(abs(Hrt(i,i)))*Ha2cmm1
+      end do
+      write(*,*) "Check Diagonalization:", Hrt(2,3)
  
 
-!      open(unit=114,file=traj,status="old",action="read")
-!      open(unit=115,file=hess,status="old",action="read")
+
+!_____Read trajectory and compute autocorrelation_______________________
+ 
+      open(unit=114,file=traj,status="old",action="read")
+      open(unit=115,file=hess,status="old",action="read")
+
+      steps = 2500
+      read(111,trajectory)
+
+      write(*,*) "@---------------------------------------------------@"
+      write(*,*) "Reading", steps, "steps of dynamics"
+
+      do k = 1,steps
+        read(114,*) 
+        read(114,*) 
+        do i = 1,nat
+        read(114,*) symb(i), x(3*i-2:3*i), v(3*i-2:3*i)
+        end do
+        read(115,*)
+        read(115,*)
+        do i = 1,ncart
+           do j = 1,i
+              read(115,*) hessian(j,i)
+               hessian(i,j) = hessian(j,i)
+           end do
+        end do
+        ! Convert to AU
+        x(:) = x(:)/bohr_radius
+        v(:) = v(:)!*FROMangTOau_vel Velocities are already in atomic units
+        ! Mass scale
+        x(:) = x(:)*dsqrt(xm(:))
+        v(:) = v(:)*dsqrt(xm(:))
+        ! Normal modes
+        qrt = matmul(transpose(cnorm),x)
+        prt = matmul(transpose(cnorm),v)
+        tmp = matmul(hessian,cnorm)
+        Hrt = matmul(transpose(cnorm),tmp)
+        ! Vibrational only
+        qvib(:) = qrt(1:nvib)
+        pvib(:) = prt(1:nvib)
+        Hvib(:,:) = Hrt(1:nvib,1:nvib)
+
+
+
+      end do !k
+
+      write(*,*) "@---------------------------------------------------@"
+      write(*,*) "Final Snapshot:"
+      do i = 1,nat
+         write(*,*) symb(i), x(3*i-2:3*i), v(3*i-2:3*i)
+      end do
+      write(*,*) "@---------------------------------------------------@"
+      write(*,*) "Final Hessian (1,1) entry:"
+      write(*,*) hessian(1,1)
+      
 
 
 !_____Closing and deallocating__________________________________________
 
-      deallocate(xm,xeq,veq,hesseq,symb,ww,cnorm,tmp)
+      deallocate(xm,xeq,veq,hesseq,symb,ww,cnorm,tmp,x,v,hessian)
 
       close(111)
       close(112)

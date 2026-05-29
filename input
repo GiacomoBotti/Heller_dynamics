@@ -1,5 +1,9 @@
 &input_files
     geom_eq="h2o_opt.xyz"
-    traj="cccccccccccccccc"
-    hess="dddddddddddddd"
+    traj="parsed_log_traj.xyz"
+    hess="final_py.out"
+    energy=""
+/
+&trajectory
+    steps=2501
 /
