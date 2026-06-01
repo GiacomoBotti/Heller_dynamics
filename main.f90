@@ -6,16 +6,19 @@
       program heller
 
       use constants
+      use correlation_module
 
       implicit none
 
       integer :: i,j,k
       integer :: nat,ncart,nvib,steps
-      real*8 :: Epot,L,dt
+      real*8 :: Epot,L,dt,detA0,time
       real*8, allocatable, dimension(:) :: xeq,veq,xm,ww,x,v
       real*8, allocatable, dimension(:) :: qrt,prt,qvib,pvib 
+      real*8, allocatable, dimension(:) :: p0,q0 
       real*8, allocatable, dimension(:,:) :: hesseq,cnorm,tmp,hessian
-      real*8, allocatable, dimension(:,:) :: Hrt,Hvib 
+      real*8, allocatable, dimension(:,:) :: Hrt,Hvib,A0
+      complex*16, allocatable, dimension(:,:) :: At
       character(len=2), allocatable, dimension(:) :: symb
       character(len=50) :: geom_eq,hess_eq,traj,hess,energy,output
 
@@ -61,6 +64,7 @@
       allocate(x(ncart),v(ncart),hessian(ncart,ncart))    
       allocate(qrt(ncart),prt(ncart),Hrt(ncart,ncart))    
       allocate(qvib(nvib),pvib(nvib),Hvib(nvib,nvib))
+      allocate(q0(nvib),p0(nvib),A0(nvib,nvib),At(nvib,nvib))
       allocate(ww(ncart),cnorm(ncart,ncart),tmp(ncart,ncart))    
 
       read(112,*)
@@ -156,6 +160,7 @@
       open(unit=114,file=traj,status="old",action="read")
       open(unit=115,file=hess,status="old",action="read")
       open(unit=116,file=energy,status="old",action="read")
+      open(unit=200,file=output,status="unknown",action="write")
 
       steps = 2500
       dt = 8.2682749151502d0 
@@ -166,7 +171,7 @@
       write(*,*) "of",dt,"Dau each"
 
       ! INITIAL CONDITIONS
-      read(113,*) 
+      read(114,*) 
       read(114,*) 
       do i = 1,nat
       read(114,*) symb(i), x(3*i-2:3*i), v(3*i-2:3*i)
@@ -196,16 +201,24 @@
       pvib(:) = prt(1:nvib)
       Hvib(:,:) = Hrt(1:nvib,1:nvib)
 
-      q0 = qvib
-      p0 = pvib
+      q0 = qvib !-qvib
+      p0 = pvib !-pvib
 
+      A0(:,:) = 0.d0
+      detA0 = 1.d0
       do i = 1,nvib
-        A0 = dsqrt(ww(6+i))
+        A0(i,i) = dsqrt(ww(6+i))
+        detA0 = detA0*A0(i,i)
       end do 
+ 
+      At = cmplx(A0)
 
       ! COMPUTE C(0)
-
+      time = 0.d0
+      call correlation(nvib,time,q0,p0,A0,q0,p0,At,0.d0,detA0) 
+  
       do k = 2,steps
+        time = time + dt
         read(114,*) 
         read(114,*) 
         do i = 1,nat
@@ -222,7 +235,7 @@
         read(116,*) Epot 
         ! Convert to AU
         x(:) = x(:)/bohr_radius
-        v(:) = v(:)!*FROMangTOau_vel Velocities are already in atomic units
+        v(:) = v(:)!/toautime!*FROMangTOau_vel Velocities are already in atomic units
         ! Mass scale
         x(:) = x(:)*dsqrt(xm(:))
         v(:) = v(:)*dsqrt(xm(:))
@@ -232,21 +245,20 @@
         tmp = matmul(hessian,cnorm)
         Hrt = matmul(transpose(cnorm),tmp)
         ! Vibrational only
-        qvib(:) = qrt(1:nvib)
-        pvib(:) = prt(1:nvib)
+        qvib(:) = qrt(1:nvib) !-q0
+        pvib(:) = prt(1:nvib) !-p0
         Hvib(:,:) = Hrt(1:nvib,1:nvib)
         ! Evolves Delta gamma
-        L = dot_product(pvib,pvib) - V
+        L = dot_product(pvib,pvib) - Epot 
         ! Evolves width
-
-
-
+        At = cmplx(A0)
+        call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,0.d0,detA0) 
       end do !k
 
       write(*,*) "@---------------------------------------------------@"
       write(*,*) "Final Snapshot:"
       do i = 1,nat
-         write(*,*) symb(i), x(3*i-2:3*i), v(3*i-2:3*i)
+         write(*,*) symb(i), x(3*i-2:3*i)*bohr_radius, v(3*i-2:3*i)
       end do
       write(*,*) "@---------------------------------------------------@"
       write(*,*) "Final Hessian (1,1) entry:"
@@ -259,7 +271,8 @@
 
 !_____Closing and deallocating__________________________________________
 
-      deallocate(xm,xeq,veq,hesseq,symb,ww,cnorm,tmp,x,v,hessian)
+      deallocate(xm,xeq,veq,hesseq,symb,ww,cnorm,tmp,x,v,hessian,q0,p0&
+                 ,A0,At)
 
       close(111)
       close(112)
@@ -267,5 +280,6 @@
       close(114)
       close(115)
       close(116)
+      close(200)
 
       end program heller

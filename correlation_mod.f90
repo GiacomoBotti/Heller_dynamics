@@ -1,0 +1,228 @@
+!---------------------------------------------------------------------!
+! MODULE CONTAINING ALL I NEED TO COMPUTE THE CORRELATION FUNCTION    !
+!---------------------------------------------------------------------!
+
+      module correlation_module
+
+      use constants
+
+      implicit none
+
+      private
+      public :: correlation
+
+      contains 
+
+!.....Inversion for a general COMPLEX matrix............................
+! Returns the inverse of a matrix calculated by finding the LU
+! decomposition.  Depends on LAPACK.
+      function invgen(npar,A) result(Ainv)
+        implicit none
+        integer, intent(in) :: npar
+        complex*16, dimension(npar,npar), intent(in) :: A
+        complex*16, dimension(npar,npar) :: Ainv
+
+        complex*16, dimension(npar) :: work  ! work array for LAPACK
+        integer, dimension(npar) :: ipiv   ! pivot indices
+        integer :: n, info
+
+        ! External procedures defined in LAPACK
+        external ZGETRF
+        external ZGETRI
+
+        ! Store A in Ainv to prevent it from being overwritten by LAPACK
+        Ainv = A
+        n = npar
+
+        ! DGETRF computes an LU factorization of a general M-by-N matrix A
+        ! using partial pivoting with row interchanges.
+        call ZGETRF(n, n, Ainv, n, ipiv, info)
+
+        if (info /= 0) then
+          !write(*,*) "DGETRF info : ",info
+          stop 'Invgen Matrix is numerically singular!'
+        end if
+
+        ! DGETRI computes the inverse of a matrix using the LU factorization
+        ! computed by DGETRF.
+        call ZGETRI(n, Ainv, n, ipiv, work, n, info)
+
+        if (info /= 0) then
+          !write(*,*) "DGETRI info : ",info
+          stop 'Invgen Matrix inversion failed!'
+        end if
+      end function 
+
+!.....Diagonalization with LAPACK (complex).............................
+
+      function det_real(nd,Amat) result(detAmat) 
+      ! nd: dimension of the matrices
+      ! Amat: real matrix matrix (precision)
+      ! detAmat: determinant
+
+       integer, intent(in) :: nd
+       real*8, dimension(nd,nd), intent(in) :: Amat
+ 
+       real*8 :: detAmat 
+
+
+       integer, dimension(nd) :: ipiv   ! pivot indices
+       real*8 :: detL,detP
+       real*8 :: detU
+       real*8, dimension(nd) :: work  ! work array for LAPACK
+       real*8, dimension(nd,nd) :: Awork
+       integer :: i,n, info
+
+       external DGETRF
+
+       n = nd
+       ! Store A in Ainv to prevent it from being overwritten by LAPACK
+       Awork = Amat
+
+       call DGETRF(n,n,Awork,n,ipiv,info) 
+
+       if (info /= 0) then
+         !write(*,*) "DGETRF info : ",info
+         stop 'diag_complx Matrix is numerically singular!'
+       end if
+
+       ! Determinants of the decomposition 
+       detU = 1.d0
+       detL = 1.d0
+       detP = 1.d0
+
+       do i = 1,nd
+         detU = detU*Awork(i,i)
+         if(ipiv(i).ne.i) then
+            detP = - detP
+         end if
+       end do
+ 
+       ! Total determinant
+
+       detAmat = detP*detU*detL
+
+      end function
+
+!.....Diagonalization with LAPACK (complex).............................
+
+      function det_cmplx(nd,Amat) result(detAmat) 
+      ! nd: dimension of the matrices
+      ! Amat: complex matrix matrix (precision)
+      ! detAmat: determinant
+
+       integer, intent(in) :: nd
+       complex*16, dimension(nd,nd), intent(in) :: Amat
+ 
+       complex*16 :: detAmat 
+
+
+       integer, dimension(nd) :: ipiv   ! pivot indices
+       real*8 :: detL,detP
+       complex*16 :: detU
+       complex*16, dimension(nd) :: work  ! work array for LAPACK
+       complex*16, dimension(nd,nd) :: Awork
+       integer :: i,n, info
+
+       external ZGETRF
+
+       n = nd
+       ! Store A in Ainv to prevent it from being overwritten by LAPACK
+       Awork = Amat
+
+       call ZGETRF(n,n,Awork,n,ipiv,info) 
+
+       if (info /= 0) then
+         !write(*,*) "DGETRF info : ",info
+         stop 'diag_complx Matrix is numerically singular!'
+       end if
+
+       ! Determinants of the decomposition 
+       detU = complex(1.d0,0.d0)
+       detL = 1.d0
+       detP = 1.d0
+
+       do i = 1,nd
+         detU = detU*Awork(i,i)
+         if(ipiv(i).ne.i) then
+            detP = - detP
+         end if
+       end do
+ 
+       ! Total determinant
+
+       detAmat = detP*detU*detL
+
+      end function
+
+!_____Correlation function______________________________________________
+
+      subroutine correlation(nd,time,q0,p0,A0,qt,pt,At,deltaph,detA0)
+      ! nd: system dimensions
+      ! time: simulation time
+      ! q0, p0, A0: initial gaussian center, momentum and width
+      ! qt, pt, At: instantaneous gaussian center, momentum and width
+      ! deltaph: phase difference
+      ! detA0 :: determinant of A0
+       integer, intent(in) :: nd
+       real*8, intent(in) :: time,deltaph,detA0
+       real*8, dimension(nd), intent(in) :: q0,p0,qt,pt
+       real*8, dimension(nd,nd) :: A0
+       complex*16, dimension(nd,nd), intent(in) :: At
+
+       integer :: i
+       real*8 :: p0q0,ptqt,N0,Nt,Adet
+       complex*16 :: q0A0q0,qtAtqt,bWb,Wdet,corr,c,gint
+       complex*16, dimension(nd) :: A0q0,Atqt,Wb,bvec
+       complex*16, dimension(nd,nd) :: W,invW
+
+        N0 = (detA0/pi**nd)**(1.d0/4.d0)
+        Adet = det_cmplx(nd,At)
+        Nt = (Adet/pi**nd)**(1.d0/4.d0)
+
+        write(*,*) N0, Nt
+
+        !W = At + transpose(dconjg(A0))
+        W = (At + transpose(A0))
+        write(*,*) W
+        invW = invgen(nd,W)
+        
+        !invW(:,:) = 0.d0
+        !Wdet = 1.d0
+        !do i = 1,nd
+        !  invW(i,i) = 1.d0/W(i,i)
+        !  Wdet = Wdet*invW(i,i)
+        !end do
+
+        Wdet = det_cmplx(nd,W)
+
+        Gint = zsqrt((2.d0*pi)**nd/Wdet)
+        write(*,*) Gint
+
+        A0q0 = matmul(transpose(A0),q0)
+        q0A0q0 = dot_product(q0,A0q0)
+        Atqt = matmul(At,qt)
+        qtAtqt = dot_product(qt,Atqt)
+
+        p0q0 = dot_product(p0,q0)
+        ptqt = dot_product(pt,qt)
+ 
+        c = iu*(p0q0-ptqt+deltaph) -0.5d0*qtAtqt-0.5d0*q0A0q0
+        write(*,*)  c
+        bvec = -iu*(p0-pt) + A0q0 + Atqt
+        write(*,*) bvec
+        write(*,*) invW
+
+        Wb = matmul(invW,bvec)
+        bWb = dot_product(bvec,Wb)
+
+        write(*,*) bWb
+
+        corr = Gint*Nt*N0*cdexp(0.5d0*bWb + c)
+        !corr = cdexp(0.5d0*bWb + c)
+
+       write(200,*) time,real(corr),aimag(corr),dreal(corr*dconjg(corr))
+       
+      end subroutine
+
+      end module
