@@ -18,6 +18,7 @@
       real*8, allocatable, dimension(:) :: p0,q0 
       real*8, allocatable, dimension(:,:) :: hesseq,cnorm,tmp,hessian
       real*8, allocatable, dimension(:,:) :: Hrt,Hvib,A0
+      complex*16 :: dotph,trace,deltaph
       complex*16, allocatable, dimension(:,:) :: At
       character(len=2), allocatable, dimension(:) :: symb
       character(len=50) :: geom_eq,hess_eq,traj,hess,energy,output
@@ -166,6 +167,7 @@
       dt = 8.2682749151502d0 
       read(111,trajectory)
 
+      dt = dt
       write(*,*) "@---------------------------------------------------@"
       write(*,*) "Reading", steps, "steps of dynamics"
       write(*,*) "of",dt,"Dau each"
@@ -211,11 +213,11 @@
         detA0 = detA0*A0(i,i)
       end do 
  
-      At = cmplx(A0)
-
       ! COMPUTE C(0)
+      At = cmplx(A0)
+      deltaph = 0.d0
       time = 0.d0
-      call correlation(nvib,time,q0,p0,A0,q0,p0,At,0.d0,detA0) 
+      call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,deltaph,detA0) 
   
       do k = 2,steps
         time = time + dt
@@ -245,20 +247,27 @@
         tmp = matmul(hessian,cnorm)
         Hrt = matmul(transpose(cnorm),tmp)
         ! Vibrational only
-        qvib(:) = qrt(1:nvib) !-q0
-        pvib(:) = prt(1:nvib) !-p0
+        qvib(:) = qrt(1:nvib) 
+        pvib(:) = prt(1:nvib)
         Hvib(:,:) = Hrt(1:nvib,1:nvib)
+        ! Evolves width
+        !At = cmplx(A0)
+        !At = At - iu*dt*(matmul(At,At) + Hvib)
         ! Evolves Delta gamma
         L = dot_product(pvib,pvib) - Epot 
-        ! Evolves width
-        At = cmplx(A0)
-        call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,0.d0,detA0) 
+        trace = (0.d0,0.d0)
+        do i = i,nvib
+           trace = trace + At(i,i)
+        end do
+        dotph = L + iu*trace/2.d0
+        deltaph = deltaph + dt*dotph
+        call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,deltaph,detA0) 
       end do !k
 
       write(*,*) "@---------------------------------------------------@"
-      write(*,*) "Final Snapshot:"
+      write(*,*) "Final Snapshot (mass-weighted!):"
       do i = 1,nat
-         write(*,*) symb(i), x(3*i-2:3*i)*bohr_radius, v(3*i-2:3*i)
+         write(*,*) symb(i), x(3*i-2:3*i), v(3*i-2:3*i)
       end do
       write(*,*) "@---------------------------------------------------@"
       write(*,*) "Final Hessian (1,1) entry:"

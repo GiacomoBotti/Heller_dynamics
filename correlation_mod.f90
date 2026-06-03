@@ -165,7 +165,8 @@
       ! deltaph: phase difference
       ! detA0 :: determinant of A0
        integer, intent(in) :: nd
-       real*8, intent(in) :: time,deltaph,detA0
+       real*8, intent(in) :: time,detA0
+       complex*16, intent(in) :: deltaph
        real*8, dimension(nd), intent(in) :: q0,p0,qt,pt
        real*8, dimension(nd,nd) :: A0
        complex*16, dimension(nd,nd), intent(in) :: At
@@ -180,24 +181,11 @@
         Adet = det_cmplx(nd,At)
         Nt = (Adet/pi**nd)**(1.d0/4.d0)
 
-        write(*,*) N0, Nt
-
-        !W = At + transpose(dconjg(A0))
         W = (At + transpose(A0))
-        write(*,*) W
         invW = invgen(nd,W)
-        
-        !invW(:,:) = 0.d0
-        !Wdet = 1.d0
-        !do i = 1,nd
-        !  invW(i,i) = 1.d0/W(i,i)
-        !  Wdet = Wdet*invW(i,i)
-        !end do
-
         Wdet = det_cmplx(nd,W)
 
         Gint = zsqrt((2.d0*pi)**nd/Wdet)
-        write(*,*) Gint
 
         A0q0 = matmul(transpose(A0),q0)
         q0A0q0 = dot_product(q0,A0q0)
@@ -208,15 +196,12 @@
         ptqt = dot_product(pt,qt)
  
         c = iu*(p0q0-ptqt+deltaph) -0.5d0*qtAtqt-0.5d0*q0A0q0
-        write(*,*)  c
         bvec = -iu*(p0-pt) + A0q0 + Atqt
-        write(*,*) bvec
-        write(*,*) invW
 
         Wb = matmul(invW,bvec)
-        bWb = dot_product(bvec,Wb)
+        bWb = dot_product(dconjg(bvec),Wb)
 
-        write(*,*) bWb
+        !write(*,*) bWb
 
         corr = Gint*Nt*N0*cdexp(0.5d0*bWb + c)
         !corr = cdexp(0.5d0*bWb + c)
