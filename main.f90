@@ -11,7 +11,7 @@
       implicit none
 
       integer :: i,j,k
-      integer :: nat,ncart,nvib,steps
+      integer :: nat,ncart,nvib,steps,padding
       real*8 :: Epot,L,dt,detA0,time
       real*8, allocatable, dimension(:) :: xeq,veq,xm,ww,x,v
       real*8, allocatable, dimension(:) :: qrt,prt,qvib,pvib 
@@ -24,7 +24,7 @@
       character(len=50) :: geom_eq,hess_eq,traj,hess,energy,output
 
       namelist /input_files/ geom_eq,hess_eq,traj,hess,energy,output
-      namelist /trajectory/ steps,dt
+      namelist /trajectory/ steps,dt,padding
 
       call execute_command_line('cat banner.txt')
 
@@ -165,6 +165,7 @@
 
       steps = 2500
       dt = 8.2682749151502d0 
+      padding = 0
       read(111,trajectory)
 
       dt = dt
@@ -184,6 +185,11 @@
          do j = 1,i
             read(115,*) hessian(j,i)
              hessian(i,j) = hessian(j,i)
+         end do
+      end do
+      do i = 1,ncart
+         do j = 1,ncart
+            hessian(i,j) = hessian(i,j)/dsqrt(xm(i)*xm(j))
          end do
       end do
       read(116,*) Epot 
@@ -234,6 +240,11 @@
                hessian(i,j) = hessian(j,i)
            end do
         end do
+        do i = 1,ncart
+           do j = 1,ncart
+              hessian(i,j) = hessian(i,j)/dsqrt(xm(i)*xm(j))
+           end do
+        end do
         read(116,*) Epot 
         ! Convert to AU
         x(:) = x(:)/bohr_radius
@@ -251,17 +262,20 @@
         pvib(:) = prt(1:nvib)
         Hvib(:,:) = Hrt(1:nvib,1:nvib)
         ! Evolves width
-        !At = cmplx(A0)
-        !At = At - iu*dt*(matmul(At,At) + Hvib)
+        At = At - iu*dt*(matmul(At,At) - Hvib)
+        At = cmplx(A0)
+        write(502,*) time, real(At(1,1)), aimag(At(1,1))
         ! Evolves Delta gamma
-        L = dot_product(pvib,pvib) - Epot 
+        L = dot_product(pvib,pvib)/2.d0 - Epot 
         trace = (0.d0,0.d0)
         do i = i,nvib
            trace = trace + At(i,i)
         end do
-        dotph = L + iu*trace/2.d0
-        deltaph = deltaph + dt*dotph
+        dotph = L - trace
+        !deltaph = deltaph + dt*dotph
+        deltaph = dt*dotph
         call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,deltaph,detA0) 
+        !call correlation(nvib,time,q0,p0,A0,q0,p0,At,deltaph,detA0) 
       end do !k
 
       write(*,*) "@---------------------------------------------------@"
@@ -276,7 +290,12 @@
       write(*,*) "Final Energy entry:"
       write(*,*) Epot
       
-
+      ! PADDING
+ 
+      do k = 1,padding
+        time = time + dt
+        write(200,*) time, 0.d0, 0.d0, 0.d0
+      end do
 
 !_____Closing and deallocating__________________________________________
 

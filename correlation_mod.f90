@@ -203,10 +203,13 @@
 
         !write(*,*) bWb
 
-        corr = Gint*Nt*N0*cdexp(0.5d0*bWb + c)
-        !corr = cdexp(0.5d0*bWb + c)
+        !corr = Gint*Nt*N0*cdexp(0.5d0*bWb + c)
+        corr = Gint*cdexp(0.5d0*bWb + c)
 
        write(200,*) time,real(corr),aimag(corr),dreal(corr*dconjg(corr))
+       write(201,*) time, pt(1) ,0.d0
+       write(202,*) time, pt(2) ,0.d0
+       write(203,*) time, pt(3) ,0.d0
        
       end subroutine
 
