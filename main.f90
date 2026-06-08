@@ -12,13 +12,13 @@
 
       integer :: i,j,k
       integer :: nat,ncart,nvib,steps,padding
-      real*8 :: Epot,L,dt,detA0,time,S
+      real*8 :: Epot,L,dt,detA0,time,S,Eref
       real*8, allocatable, dimension(:) :: xeq,veq,xm,ww,x,v
       real*8, allocatable, dimension(:) :: qrt,prt,qvib,pvib 
       real*8, allocatable, dimension(:) :: p0,q0 
       real*8, allocatable, dimension(:,:) :: hesseq,cnorm,tmp,hessian
-      real*8, allocatable, dimension(:,:) :: Hrt,Hvib,A0
-      complex*16 :: dotph,trace,deltaph,ph0,pht,detZ
+      real*8, allocatable, dimension(:,:) :: Hrt,Hvib,A0,HA,invA0
+      complex*16 :: dotph,trace,deltaph,ph0,pht,detZi,traceHA
       complex*16, allocatable, dimension(:,:) :: At,Z,Y,invZ
       character(len=2), allocatable, dimension(:) :: symb
       character(len=50) :: geom_eq,hess_eq,traj,hess,energy,output
@@ -64,9 +64,9 @@
       allocate(xm(ncart),xeq(ncart),veq(ncart),hesseq(ncart,ncart))    
       allocate(x(ncart),v(ncart),hessian(ncart,ncart))    
       allocate(qrt(ncart),prt(ncart),Hrt(ncart,ncart))    
-      allocate(qvib(nvib),pvib(nvib),Hvib(nvib,nvib))
+      allocate(qvib(nvib),pvib(nvib),Hvib(nvib,nvib),invA0(nvib,nvib))
       allocate(q0(nvib),p0(nvib),A0(nvib,nvib),At(nvib,nvib))
-      allocate(Z(nvib,nvib),Y(nvib,nvib),invZ(nvib,nvib))
+      allocate(Z(nvib,nvib),Y(nvib,nvib),invZ(nvib,nvib),HA(nvib,nvib))
       allocate(ww(ncart),cnorm(ncart,ncart),tmp(ncart,ncart))    
 
       read(112,*)
@@ -148,6 +148,7 @@
       do i = 1,nvib
          write(*,*) "Mode[",i,"]", dsqrt(ww(6+i))*Ha2cmm1
       end do
+      write(*,*) "Harmonic zpe: ", sum(dsqrt(ww(6:ncart)))*Ha2cmm1/2.d0
       write(*,*) "@---------------------------------------------------@"
       write(*,*) "Harmonic frequencies from NM Hessian"
       do i = 1,ncart
@@ -214,21 +215,36 @@
       p0 = pvib !-pvib
 
       A0(:,:) = 0.d0
-      Z(:,:) = 0.d0
+      invA0(:,:) = 0.d0
       detA0 = 1.d0
       do i = 1,nvib
         A0(i,i) = dsqrt(ww(6+i))
         Z(i,i) = (1.d0,0.d0)
         detA0 = detA0*A0(i,i)
+        invA0(i,i) = 1/dsqrt(ww(6+i))
       end do 
-      Y(:,:) = iu*A0(:,:)
  
       ! COMPUTE C(0)
       At = cmplx(A0)
       write(502,*) time, real(At(1,1)), aimag(At(1,1))
-      ph0 = -iu*0.25d0*log(detA0/pi**nvib)
+      ph0 = 0.d0!-iu*0.25d0*log(detA0/pi**nvib)
+      pht = ph0
       S = 0.d0
       time = 0.d0
+      ! REFERENCE ENERGY 
+      trace = (0.d0,0.d0)
+      HA = matmul(Hvib,invA0)
+      traceHA = (0.d0,0.d0)
+      do i = 1,nvib
+        trace = trace + A0(i,i)
+        traceHA = traceHA + HA(i,i)
+      end do
+
+      Eref= +0.25d0*trace + dot_product(p0,p0)/2.d0 +0.25*traceHA
+      Eref = 0.5d0*trace
+ 
+      write(*,*) "Eref: ", Eref, Eref*Ha2cmm1
+      
       call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,ph0,ph0,detA0) 
   
       do k = 2,steps
@@ -270,14 +286,7 @@
         qvib(:) = qrt(1:nvib) 
         pvib(:) = prt(1:nvib)
         Hvib(:,:) = Hrt(1:nvib,1:nvib)
-        ! Evolves width
-        !At = At - iu*dt*(matmul(At,At) - Hvib)
-        !At = cmplx(A0)
-        Z(:,:) = Z(:,:) !+ dt*Y(:,:)
-        Y(:,:) = Y(:,:) 
-        invZ = invgen(nvib,Z)
-        At = -iu*matmul(Y,invZ) 
-        write(502,*) time, real(At(1,1)), aimag(At(1,1))
+        At = cmplx(A0)
         ! Second half of the action 
         L = dot_product(pvib,pvib)/2.d0 - Epot 
         S = S +0.5d0*dt*L
@@ -285,11 +294,11 @@
         do i = 1,nvib
           trace = trace + At(i,i)
         end do
-        pht = ph0 + S -0.5d0*trace*dt
-        !detZ = det_cmplx(nvib,Z)
-        !pht = ph0 +iu*0.5d0*log(detZ) !+S
+        pht = pht + (L -Eref)*dt 
+        !pht = ph0 + (L)*dt 
+        !write(*,*) L
+        write(505,*) time, real(pht), aimag(pht)
         call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,ph0,pht,detA0) 
-        !call correlation(nvib,time,q0,p0,A0,q0,p0,At,deltaph,detA0) 
       end do !k
 
       write(*,*) "@---------------------------------------------------@"
@@ -314,7 +323,7 @@
 !_____Closing and deallocating__________________________________________
 
       deallocate(xm,xeq,veq,hesseq,symb,ww,cnorm,tmp,x,v,hessian,q0,p0&
-                 ,A0,At,Z,Y,invZ)
+                 ,A0,At,Z,Y,invZ,HA,invA0)
 
       close(111)
       close(112)

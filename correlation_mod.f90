@@ -173,11 +173,12 @@
        complex*16, dimension(nd,nd), intent(in) :: At
 
        integer :: i
-       real*8 :: p0q0,ptqt,N0,Nt,Adet
+       real*8 :: p0q0,ptqt,N0,Nt,Adet,eta
        complex*16 :: q0A0q0,qtAtqt,bWb,Wdet,corr,c,gint,Dph
        complex*16, dimension(nd) :: A0q0,Atqt,Wb,bvec
        complex*16, dimension(nd,nd) :: W,invW
 
+        eta = 0.d0
         N0 = 1.d0! (detA0/pi**nd)**(1.d0/4.d0)
         Adet = det_cmplx(nd,At)
         Nt = 1.d0!(Adet/pi**nd)**(1.d0/4.d0)
@@ -205,12 +206,15 @@
 
         !write(*,*) bWb
 
-        corr = Gint*Nt*N0*cdexp(0.5d0*bWb + c)
+        corr = Gint*Nt*N0*cdexp(0.5d0*bWb + c - eta*time)
+        !corr = Gint*cdexp(0.5d0*bWb + c - eta*time)
 
        write(200,*) time,real(corr),aimag(corr),dreal(corr*dconjg(corr))
        write(201,*) time, pt(1) ,0.d0
        write(202,*) time, pt(2) ,0.d0
        write(203,*) time, pt(3) ,0.d0
+       write(204,*) time, real(exp(Dph)),aimag(exp(Dph)),&
+                    dreal(exp(Dph)*conjg(exp(Dph)))
        
       end subroutine
 
