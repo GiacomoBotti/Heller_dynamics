@@ -9,7 +9,7 @@
       implicit none
 
       private
-      public :: correlation
+      public :: correlation,invgen,det_cmplx
 
       contains 
 
@@ -157,7 +157,8 @@
 
 !_____Correlation function______________________________________________
 
-      subroutine correlation(nd,time,q0,p0,A0,qt,pt,At,deltaph,detA0)
+      subroutine correlation(nd,time,q0,p0,A0,qt,pt,At,ph0,pht,detA0)
+      ! < 0 | t >
       ! nd: system dimensions
       ! time: simulation time
       ! q0, p0, A0: initial gaussian center, momentum and width
@@ -166,20 +167,20 @@
       ! detA0 :: determinant of A0
        integer, intent(in) :: nd
        real*8, intent(in) :: time,detA0
-       complex*16, intent(in) :: deltaph
+       complex*16, intent(in) :: ph0,pht
        real*8, dimension(nd), intent(in) :: q0,p0,qt,pt
        real*8, dimension(nd,nd) :: A0
        complex*16, dimension(nd,nd), intent(in) :: At
 
        integer :: i
        real*8 :: p0q0,ptqt,N0,Nt,Adet
-       complex*16 :: q0A0q0,qtAtqt,bWb,Wdet,corr,c,gint
+       complex*16 :: q0A0q0,qtAtqt,bWb,Wdet,corr,c,gint,Dph
        complex*16, dimension(nd) :: A0q0,Atqt,Wb,bvec
        complex*16, dimension(nd,nd) :: W,invW
 
-        N0 = (detA0/pi**nd)**(1.d0/4.d0)
+        N0 = 1.d0! (detA0/pi**nd)**(1.d0/4.d0)
         Adet = det_cmplx(nd,At)
-        Nt = (Adet/pi**nd)**(1.d0/4.d0)
+        Nt = 1.d0!(Adet/pi**nd)**(1.d0/4.d0)
 
         W = (At + transpose(A0))
         invW = invgen(nd,W)
@@ -194,8 +195,9 @@
 
         p0q0 = dot_product(p0,q0)
         ptqt = dot_product(pt,qt)
- 
-        c = iu*(p0q0-ptqt+deltaph) -0.5d0*qtAtqt-0.5d0*q0A0q0
+
+        Dph = iu*(pht-conjg(ph0)) 
+        c = iu*(p0q0-ptqt) -0.5d0*qtAtqt-0.5d0*q0A0q0 +Dph
         bvec = -iu*(p0-pt) + A0q0 + Atqt
 
         Wb = matmul(invW,bvec)
@@ -203,8 +205,7 @@
 
         !write(*,*) bWb
 
-        !corr = Gint*Nt*N0*cdexp(0.5d0*bWb + c)
-        corr = Gint*cdexp(0.5d0*bWb + c)
+        corr = Gint*Nt*N0*cdexp(0.5d0*bWb + c)
 
        write(200,*) time,real(corr),aimag(corr),dreal(corr*dconjg(corr))
        write(201,*) time, pt(1) ,0.d0

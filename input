@@ -3,7 +3,7 @@
     traj="parsed_log_traj.xyz"
     hess="final_py.out"
     energy="h2o_energies.dat"
-    output="correlation.dat"
+    output="input.dat"
 /
 &trajectory
     steps=2500
