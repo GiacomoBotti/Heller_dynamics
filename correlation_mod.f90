@@ -157,7 +157,7 @@
 
 !_____Correlation function______________________________________________
 
-      subroutine correlation(nd,time,q0,p0,A0,qt,pt,At,ph0,pht,detA0)
+      subroutine correlation(nd,time,q0,p0,A0,qt,pt,At,ph0,pht,detA0,Ct)
       ! < 0 | t >
       ! nd: system dimensions
       ! time: simulation time
@@ -174,7 +174,7 @@
 
        integer :: i
        real*8 :: p0q0,ptqt,N0,Nt,Adet,eta
-       complex*16 :: q0A0q0,qtAtqt,bWb,Wdet,corr,c,gint,Dph
+       complex*16 :: q0A0q0,qtAtqt,bWb,Wdet,corr,c,gint,Dph,Ct
        complex*16, dimension(nd) :: A0q0,Atqt,Wb,bvec
        complex*16, dimension(nd,nd) :: W,invW
 
@@ -208,6 +208,8 @@
 
         corr = Gint*Nt*N0*cdexp(0.5d0*bWb + c - eta*time)
         !corr = Gint*cdexp(0.5d0*bWb + c - eta*time)
+
+        Ct=corr
 
        write(200,*) time,real(corr),aimag(corr),dreal(corr*dconjg(corr))
        write(201,*) time, pt(1) ,0.d0

@@ -7,9 +7,14 @@
 
       use constants
       use correlation_module
-
+      use, intrinsic :: iso_c_binding
       implicit none
 
+      include 'fftw3.f03'
+
+      real(C_DOUBLE), allocatable :: frequency(:),omega(:)
+      complex(C_DOUBLE_COMPLEX), allocatable :: Coft(:), fft(:)
+      type(C_PTR) :: plan
       integer :: i,j,k
       integer :: nat,ncart,nvib,steps,padding
       real*8 :: Epot,L,dt,detA0,time,S,Eref
@@ -18,12 +23,14 @@
       real*8, allocatable, dimension(:) :: p0,q0 
       real*8, allocatable, dimension(:,:) :: hesseq,cnorm,tmp,hessian
       real*8, allocatable, dimension(:,:) :: Hrt,Hvib,A0,HA,invA0
-      complex*16 :: dotph,trace,deltaph,ph0,pht,detZi,traceHA
+      complex*16 :: dotph,trace,deltaph,ph0,pht,detZi,traceHA,Ct
       complex*16, allocatable, dimension(:,:) :: At,Z,Y,invZ
       character(len=2), allocatable, dimension(:) :: symb
       character(len=50) :: geom_eq,hess_eq,traj,hess,energy,output
+      character(len=50) :: fourierout,powerout 
 
-      namelist /input_files/ geom_eq,hess_eq,traj,hess,energy,output
+      namelist /input_files/ geom_eq,hess_eq,traj,hess,energy,output,&
+                            &fourierout,powerout
       namelist /trajectory/ steps,dt,padding
 
       call execute_command_line('cat banner.txt')
@@ -42,6 +49,8 @@
       hess="Hessian_traj.out"
       energy="energies.dat"
       output="correlation.dat"
+      fourierout="fourier.dat"
+      powerout="power.dat"
 
       read(111,input_files)
 
@@ -170,7 +179,8 @@
       padding = 0
       read(111,trajectory)
 
-      dt = dt
+      allocate(Coft(steps),fft(steps),frequency(steps),omega(steps))
+
       write(*,*) "@---------------------------------------------------@"
       write(*,*) "Reading", steps, "steps of dynamics"
       write(*,*) "of",dt,"Dau each"
@@ -245,7 +255,8 @@
  
       write(*,*) "Eref: ", Eref, Eref*Ha2cmm1
       
-      call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,ph0,ph0,detA0) 
+      call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,ph0,ph0,detA0,Ct)
+      Coft(1) = cmplx(Ct,kind=C_DOUBLE)
   
       do k = 2,steps
         time = time + dt
@@ -298,7 +309,8 @@
         !pht = ph0 + (L)*dt 
         !write(*,*) L
         write(505,*) time, real(pht), aimag(pht)
-        call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,ph0,pht,detA0) 
+      call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,ph0,pht,detA0,Ct) 
+        Coft(k) = cmplx(Ct,kind=C_DOUBLE)
       end do !k
 
       write(*,*) "@---------------------------------------------------@"
@@ -320,6 +332,42 @@
         write(200,*) time, 0.d0, 0.d0, 0.d0
       end do
 
+!_____Fourier___________________________________________________________
+
+      do i = 1, steps
+         if (i <= steps/2 + 1) then
+           frequency(i)=dble(i-1)/(dble(steps)*dt)
+         else
+           frequency(i)=dble(i-1-steps)/(dble(steps)*dt)
+         end if
+      end do
+
+      omega(:) = 2*pi*frequency(:)
+
+      plan=fftw_plan_dft_1d(steps,Coft,fft,FFTW_BACKWARD,FFTW_ESTIMATE)
+      call fftw_execute_dft(plan,Coft,fft)
+      call fftw_destroy_plan(plan)
+
+      fft(:) = dt*fft(:)!/dble(n)
+
+      open(unit=222,file=fourierout,status='replace',action='write')
+
+      do i = 1, steps
+        write(222,*) frequency(i), omega(i),&
+                     &dreal(fft(i)), aimag(fft(i))
+      end do
+
+      close(222)
+
+      open(unit=333,file=powerout,status='replace',action='write')
+
+      do i = 1, steps/2+1
+        write(333,*) frequency(i), omega(i), omega(i)*219474.6313705,&
+      &(dreal(fft(i))**2 +aimag(fft(i))**2)
+      end do
+
+      close(333)
+
 !_____Closing and deallocating__________________________________________
 
       deallocate(xm,xeq,veq,hesseq,symb,ww,cnorm,tmp,x,v,hessian,q0,p0&
@@ -332,5 +380,7 @@
       close(115)
       close(116)
       close(200)
+      close(222)
+      close(333)
 
       end program heller
