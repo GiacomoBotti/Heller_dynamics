@@ -178,7 +178,7 @@
        complex*16, dimension(nd) :: A0q0,Atqt,Wb,bvec
        complex*16, dimension(nd,nd) :: W,invW
 
-        eta = 0.d0
+        eta = 5.d0/25000.d0
         N0 = 1.d0! (detA0/pi**nd)**(1.d0/4.d0)
         Adet = det_cmplx(nd,At)
         Nt = 1.d0!(Adet/pi**nd)**(1.d0/4.d0)

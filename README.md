@@ -22,9 +22,9 @@ The expected workflow:
    - [x] actual reading
 - [x] normal modes
 - [x] trajectory into normal modes
-- [ ] evolve width
-- [ ] evolve $\Delta \gamma$
+- [x] evolve width
+- [x] evolve $\Delta \gamma$
 - [x] correlation function w/ MAPLE
-- [ ] compute initial correlation function
-- [ ] code correlation function
-- [ ] fourier
+- [x] compute initial correlation function
+- [x] code correlation function
+- [x] fourier
