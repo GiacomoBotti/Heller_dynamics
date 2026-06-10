@@ -21,8 +21,10 @@ The expected workflow:
    - [x] Symbol matching
    - [x] actual reading
 - [x] normal modes
-- [ ] trajectory into normal modes
-- [ ] evolve width
-- [ ] correlation function w/ MAPLE
-- [ ] code correlation function
-- [ ] fourier
+- [x] trajectory into normal modes
+- [x] evolve width
+- [x] evolve $\Delta \gamma$
+- [x] correlation function w/ MAPLE
+- [x] compute initial correlation function
+- [x] code correlation function
+- [x] fourier
