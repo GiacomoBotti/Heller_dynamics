@@ -257,7 +257,7 @@
       ! COMPUTE C(0)
       Coft(:) = cmplx(0.d0,0.d0,kind=C_DOUBLE)
       At = cmplx(A0)
-      write(502,*) time, real(At(1,1)), aimag(At(1,1))
+      !write(502,*) time, real(At(1,1)), aimag(At(1,1))
       ph0 = 0.d0!-iu*0.25d0*log(detA0/pi**nvib)
       pht = ph0
       S = 0.d0
@@ -337,7 +337,7 @@
            invZ = invgen(nvib,Z)
            At = - iu*matmul(Y,invZ)
         end if
-        write(502,*) time, real(At(1,1)), aimag(At(1,1))
+        !write(502,*) time, real(At(1,1)), aimag(At(1,1))
         ! Second half of the action 
         L = dot_product(pvib,pvib)/2.d0 - Epot 
         S = S +0.5d0*dt*L
@@ -347,7 +347,7 @@
         end do
         pht = pht + (L -0.5d0*trace)*dt 
         !write(*,*) L
-        write(505,*) time, real(pht), aimag(pht)
+        !write(505,*) time, real(pht), aimag(pht)
       call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,ph0,pht,detA0,Ct) 
         Coft(k) = cmplx(Ct*exp(-eta*time) ,kind=C_DOUBLE)
       end do !k
