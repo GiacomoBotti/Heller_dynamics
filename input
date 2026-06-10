@@ -7,10 +7,10 @@
 /
 &options
     calculation = 1
-    eta = 3.4d-5
+    eta = 0.d0 !3.4d-5
 /
 &trajectory
     steps=2500
     dt=8.2682749151502d0
-    padding=250000
+    padding=170000
 /
