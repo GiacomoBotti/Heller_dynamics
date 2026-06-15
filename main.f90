@@ -17,7 +17,8 @@
       type(C_PTR) :: plan
       integer :: i,j,k
       integer :: nat,ncart,nvib,steps,padding,calculation,fftsteps
-      real*8 :: Epot,L,dt,detA0,time,S,Eref,eta
+      real*8 :: Epot,L,dt,detA0,time,S,Eref,eta,Etot
+      integer, allocatable, dimension(:) :: mask
       real*8, allocatable, dimension(:) :: xeq,veq,xm,ww,x,v
       real*8, allocatable, dimension(:) :: qrt,prt,qvib,pvib 
       real*8, allocatable, dimension(:) :: p0,q0 
@@ -32,7 +33,7 @@
       namelist /input_files/ geom_eq,hess_eq,traj,hess,energy,output,&
                             &fourierout,powerout
       namelist /options/ calculation,eta
-      namelist /trajectory/ steps,dt,padding
+      namelist /trajectory/ steps,dt,padding,mask
 
       call execute_command_line('cat banner.txt')
 
@@ -86,7 +87,7 @@
 
       allocate(symb(nat))                                           
       allocate(xm(ncart),xeq(ncart),veq(ncart),hesseq(ncart,ncart))    
-      allocate(x(ncart),v(ncart),hessian(ncart,ncart))    
+      allocate(x(ncart),v(ncart),hessian(ncart,ncart),mask(nvib))    
       allocate(qrt(ncart),prt(ncart),Hrt(ncart,ncart),dotAt(nvib,nvib))
       allocate(qvib(nvib),pvib(nvib),Hvib(nvib,nvib),invA0(nvib,nvib))
       allocate(q0(nvib),p0(nvib),A0(nvib,nvib),At(nvib,nvib))
@@ -192,6 +193,7 @@
       steps = 2500
       dt = 8.2682749151502d0 
       padding = 0
+      mask(:) = 1
       read(111,trajectory)
       fftsteps = steps+padding
 
@@ -273,6 +275,7 @@
 
       !Eref= +0.25d0*trace + dot_product(p0,p0)/2.d0 +0.25*traceHA
       Eref = 0.5d0*trace
+      Etot = dot_product(p0,p0)/2.d0 + Epot
  
       write(*,*) "Harmonic ZPE: ", Eref, Eref*Ha2cmm1
       
@@ -282,7 +285,8 @@
       do k = 2,steps
         time = time + dt
         ! Half of the action
-        L = dot_product(pvib,pvib)/2.d0 - Epot 
+        !L = dot_product(pvib,pvib)/2.d0 - Epot 
+        L = dot_product(pvib,pvib) - Etot
         S = S +0.5d0*dt*L
         read(114,*) 
         read(114,*) 
@@ -300,8 +304,8 @@
         qrt = matmul(transpose(cnorm),x)
         prt = matmul(transpose(cnorm),v)
         ! Vibrational only
-        qvib(:) = qrt(1:nvib) 
-        pvib(:) = prt(1:nvib)
+        qvib(:) = qrt(1:nvib)*mask(:) + (1-mask(:))*q0(:) 
+        pvib(:) = prt(1:nvib)*mask(:) + (1-mask(:))*p0(:)
         ! Evolves A
         ! FROZEN GAUSSIAN
         if(calculation.eq.0) then
@@ -339,7 +343,8 @@
         end if
         !write(502,*) time, real(At(1,1)), aimag(At(1,1))
         ! Second half of the action 
-        L = dot_product(pvib,pvib)/2.d0 - Epot 
+        !L = dot_product(pvib,pvib)/2.d0 - Epot 
+        L = dot_product(pvib,pvib) - Etot
         S = S +0.5d0*dt*L
         trace = (0.d0,0.d0)
         do i = 1,nvib
