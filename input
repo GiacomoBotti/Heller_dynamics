@@ -6,7 +6,7 @@
     output="input.dat"
 /
 &options
-    calculation = 1
+    calculation = 0
     eta = 0.d0 !3.4d-5
 /
 &trajectory

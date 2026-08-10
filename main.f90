@@ -15,7 +15,7 @@
       real(C_DOUBLE), allocatable :: frequency(:),omega(:)
       complex(C_DOUBLE_COMPLEX), allocatable :: Coft(:), fft(:)
       type(C_PTR) :: plan
-      integer :: i,j,k
+      integer :: i,j,k,rotrasl
       integer :: nat,ncart,nvib,steps,padding,calculation,fftsteps
       real*8 :: Epot,L,dt,detA0,time,S,Eref,eta,Etot
       integer, allocatable, dimension(:) :: mask
@@ -32,7 +32,7 @@
 
       namelist /input_files/ geom_eq,hess_eq,traj,hess,energy,output,&
                             &fourierout,powerout
-      namelist /options/ calculation,eta
+      namelist /options/ calculation,eta,rotrasl
       namelist /trajectory/ steps,dt,padding,mask
 
       call execute_command_line('cat banner.txt')
@@ -58,6 +58,7 @@
 
       calculation=0
       eta = 0.d0
+      rotrasl = 6
  
       read(111,options)
 
@@ -83,7 +84,7 @@
       read(112,*) nat
 
       ncart = 3*nat
-      nvib = ncart - 6
+      nvib = ncart - rotrasl 
 
       allocate(symb(nat))                                           
       allocate(xm(ncart),xeq(ncart),veq(ncart),hesseq(ncart,ncart))    
@@ -171,9 +172,10 @@
       write(*,*) "@---------------------------------------------------@"
       write(*,*) "Harmonic frequencies"
       do i = 1,nvib
-         write(*,*) "Mode[",i,"]", dsqrt(ww(6+i))*Ha2cmm1
+         write(*,*) "Mode[",i,"]", dsqrt(ww(rotrasl+i))*Ha2cmm1
       end do
-      write(*,*) "Harmonic zpe: ", sum(dsqrt(ww(6:ncart)))*Ha2cmm1/2.d0
+      write(*,*) "Harmonic zpe: ",&
+                 & sum(dsqrt(ww(rotrasl:ncart)))*Ha2cmm1/2.d0
       write(*,*) "@---------------------------------------------------@"
       write(*,*) "Harmonic frequencies from NM Hessian"
       do i = 1,ncart
@@ -249,10 +251,10 @@
       invA0(:,:) = 0.d0
       detA0 = 1.d0
       do i = 1,nvib
-        A0(i,i) = dsqrt(ww(6+i))
+        A0(i,i) = dsqrt(ww(rotrasl+i))
         Z(i,i) = (1.d0,0.d0)
         detA0 = detA0*A0(i,i)
-        invA0(i,i) = 1/dsqrt(ww(6+i))
+        invA0(i,i) = 1/dsqrt(ww(rotrasl+i))
       end do 
       Y(:,:) = iu*A0(:,:)
  
@@ -312,10 +314,10 @@
            At = cmplx(A0)
         ! SINGLE HESSIAN
         elseif(calculation.eq.1) then
-           !dotAt = -iu*matmul(At,At)+iu*Hvib
+           !dotAt = +iu*matmul(At,At)+iu*Hvib
            !At = At + dotAt*dt
-           Z = Z + Y*dt
            Y = Y - matmul(Hvib,Z)*dt
+           Z = Z + Y*dt
            invZ = invgen(nvib,Z)
            At = - iu*matmul(Y,invZ)
         ! THAWED GAUSSIAN
@@ -336,8 +338,8 @@
            tmp = matmul(hessian,cnorm)
            Hrt = matmul(transpose(cnorm),tmp)
            Hvib(:,:) = Hrt(1:nvib,1:nvib)
-           Z = Z + Y*dt
            Y = Y - matmul(Hvib,Z)*dt
+           Z = Z + Y*dt
            invZ = invgen(nvib,Z)
            At = - iu*matmul(Y,invZ)
         end if
@@ -369,12 +371,12 @@
       write(*,*) "Final Energy entry:"
       write(*,*) Epot
       
-      ! PADDING
+      ! PRINT PADDING TO HAVE BIGGER OUTPUTSSSSSS
  
-      do k = 1,padding
-        time = time + dt
-        write(200,*) time, 0.d0, 0.d0, 0.d0
-      end do
+      !do k = 1,padding
+      !  time = time + dt
+      !  write(200,*) time, 0.d0, 0.d0, 0.d0
+      !end do
 
 !_____Fourier___________________________________________________________
  

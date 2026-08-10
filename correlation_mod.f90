@@ -182,7 +182,7 @@
         N0 = (detA0/pi**nd)**(1.d0/4.d0)
         Adet = det_cmplx(nd,At)
         Nt = 1.d0!(Adet/pi**nd)**(1.d0/4.d0)
-        Nt = (Adet/pi**nd)**(1.d0/4.d0)
+        !Nt = (Adet/pi**nd)**(1.d0/4.d0)
 
         W = (At + transpose(A0))
         invW = invgen(nd,W)
@@ -213,11 +213,12 @@
         Ct=corr
 
        write(200,*) time,real(corr),aimag(corr),dreal(corr*dconjg(corr))
-       !write(201,*) time, pt(1) ,0.d0
-       !write(202,*) time, pt(2) ,0.d0
-       !write(203,*) time, pt(3) ,0.d0
-       !write(204,*) time, real(exp(Dph)),aimag(exp(Dph)),&
-        !            dreal(exp(Dph)*conjg(exp(Dph)))
+       write(201,*) time, pt(1) ,0.d0
+       write(202,*) time, pt(2) ,0.d0
+       write(203,*) time, pt(3) ,0.d0
+       write(204,*) time, real(exp(Dph)),aimag(exp(Dph)),&
+                    dreal(exp(Dph)*conjg(exp(Dph)))
+       write(205,*) time, abs(Gint*cdexp(0.5d0*bWb + c)), Nt,N0
        
       end subroutine
 
