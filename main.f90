@@ -27,10 +27,10 @@
       complex*16 :: dotph,trace,deltaph,ph0,pht,detZi,traceHA,Ct
       complex*16, allocatable, dimension(:,:) :: At,Z,Y,invZ,dotAt
       character(len=2), allocatable, dimension(:) :: symb
-      character(len=50) :: geom_eq,hess_eq,traj,hess,energy,output
+      character(len=50) :: geom_eq,hess_eq,traj,hess,velocity,output
       character(len=50) :: fourierout,powerout 
 
-      namelist /input_files/ geom_eq,hess_eq,traj,hess,energy,output,&
+      namelist /input_files/ geom_eq,hess_eq,traj,hess,velocity,output,&
                             &fourierout,powerout
       namelist /options/ calculation,eta,rotrasl
       namelist /trajectory/ steps,dt,padding,mask
@@ -49,7 +49,7 @@
       hess_eq="Hessian_flat.out"
       traj="parsed_log_traj.xyz"
       hess="Hessian_traj.out"
-      energy="energies.dat"
+      velocity="velocity.xyz"
       output="correlation.dat"
       fourierout="fourier.dat"
       powerout="power.dat"
@@ -66,7 +66,7 @@
       write(*,*) "Equilibrium Hessian from:  ", hess_eq
       write(*,*) "Trajectory from:           ", traj
       write(*,*) "Hessian matrices from:     ", hess
-      write(*,*) "Potential energy from:     ", energy
+      write(*,*) "Initial velocities from:   ", velocity
 
       if(calculation.eq.0) then
          write(*,*) "Calculation:     ", "Frozen"
@@ -112,7 +112,7 @@
             xm(3*i-2:3*i)=29156.95d0
           CASE ('S')
             xm(3*i-2:3*i)=58422.43d0
-          CASE ('SP')
+          CASE ('P')
             xm(3*i-2:3*i)=7348.6d0
           CASE ('I')
             xm(3*i-2:3*i)=97368.95
@@ -175,7 +175,7 @@
          write(*,*) "Mode[",i,"]", dsqrt(ww(rotrasl+i))*Ha2cmm1
       end do
       write(*,*) "Harmonic zpe: ",&
-                 & sum(dsqrt(ww(rotrasl:ncart)))*Ha2cmm1/2.d0
+                 & sum(dsqrt(ww(rotrasl+1:ncart)))*Ha2cmm1/2.d0
       write(*,*) "@---------------------------------------------------@"
       write(*,*) "Harmonic frequencies from NM Hessian"
       do i = 1,ncart
@@ -189,7 +189,7 @@
  
       open(unit=114,file=traj,status="old",action="read")
       open(unit=115,file=hess,status="old",action="read")
-      open(unit=116,file=energy,status="old",action="read")
+      open(unit=116,file=velocity,status="old",action="read")
       open(unit=200,file=output,status="unknown",action="write")
 
       steps = 2500
@@ -209,36 +209,21 @@
       write(*,*) "Final damping: ", exp(-eta*steps*dt)
 
       ! INITIAL CONDITIONS
-      read(114,*) 
-      read(114,*) 
+      ! Read initial velocity
+      read(116,*)
+      read(116,*)
       do i = 1,nat
-      read(114,*) symb(i), x(3*i-2:3*i), v(3*i-2:3*i)
+        read(116,*) symb(i), veq(3*i-2:3*i)
       end do
-      read(115,*)
-      read(115,*)
-      do i = 1,ncart
-         do j = 1,i
-            read(115,*) hessian(j,i)
-             hessian(i,j) = hessian(j,i)
-         end do
-      end do
-      do i = 1,ncart
-         do j = 1,ncart
-            hessian(i,j) = hessian(i,j)/dsqrt(xm(i)*xm(j))
-         end do
-      end do
-      read(116,*) Epot 
       ! Convert to AU
-      x(:) = x(:)/bohr_radius
-      v(:) = v(:)!*FROMangTOau_vel Velocities are already in atomic units
+      x(:) = xeq(:)/bohr_radius
+      v(:) = veq(:)!*FROMangTOau_vel Velocities are already in atomic units
       ! Mass scale
       x(:) = x(:)*dsqrt(xm(:))
       v(:) = v(:)*dsqrt(xm(:))
       ! Normal modes
       qrt = matmul(transpose(cnorm),x)
       prt = matmul(transpose(cnorm),v)
-      tmp = matmul(hessian,cnorm)
-      Hrt = matmul(transpose(cnorm),tmp)
       ! Vibrational only
       qvib(:) = qrt(1:nvib)
       pvib(:) = prt(1:nvib)
@@ -252,11 +237,11 @@
       detA0 = 1.d0
       do i = 1,nvib
         A0(i,i) = dsqrt(ww(rotrasl+i))
-        Z(i,i) = (1.d0,0.d0)
+        Z(i,i) = (1.d0,0.d0)!*mask(i)
         detA0 = detA0*A0(i,i)
         invA0(i,i) = 1/dsqrt(ww(rotrasl+i))
       end do 
-      Y(:,:) = iu*A0(:,:)
+      Y(:,:) = iu*A0(:,:)!*Z(:,:)
  
       ! COMPUTE C(0)
       Coft(:) = cmplx(0.d0,0.d0,kind=C_DOUBLE)
@@ -277,25 +262,20 @@
 
       !Eref= +0.25d0*trace + dot_product(p0,p0)/2.d0 +0.25*traceHA
       Eref = 0.5d0*trace
-      Etot = dot_product(p0,p0)/2.d0 + Epot
+      Etot = dot_product(p0,p0)/2.d0 + 0.d0 ! Epot of reference
  
       write(*,*) "Harmonic ZPE: ", Eref, Eref*Ha2cmm1
       
       call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,ph0,ph0,detA0,Ct)
       Coft(1) = cmplx(Ct,kind=C_DOUBLE)
   
-      do k = 2,steps
+      do k = 1,steps
         time = time + dt
-        ! Half of the action
-        !L = dot_product(pvib,pvib)/2.d0 - Epot 
-        L = dot_product(pvib,pvib) - Etot
-        S = S +0.5d0*dt*L
         read(114,*) 
         read(114,*) 
         do i = 1,nat
         read(114,*) symb(i), x(3*i-2:3*i), v(3*i-2:3*i)
         end do
-        read(116,*) Epot 
         ! Convert to AU
         x(:) = x(:)/bohr_radius
         v(:) = v(:)!/toautime!*FROMangTOau_vel Velocities are already in atomic units
@@ -347,7 +327,6 @@
         ! Second half of the action 
         !L = dot_product(pvib,pvib)/2.d0 - Epot 
         L = dot_product(pvib,pvib) - Etot
-        S = S +0.5d0*dt*L
         trace = (0.d0,0.d0)
         do i = 1,nvib
           trace = trace + At(i,i)
@@ -355,7 +334,7 @@
         pht = pht + (L -0.5d0*trace)*dt 
         !write(*,*) L
         !write(505,*) time, real(pht), aimag(pht)
-      call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,ph0,pht,detA0,Ct) 
+      call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,ph0,pht,detA0,Ct)
         Coft(k) = cmplx(Ct*exp(-eta*time) ,kind=C_DOUBLE)
       end do !k
 
@@ -368,8 +347,8 @@
       write(*,*) "Final Hessian (1,1) entry:"
       write(*,*) hessian(1,1)
       write(*,*) "@---------------------------------------------------@"
-      write(*,*) "Final Energy entry:"
-      write(*,*) Epot
+      !write(*,*) "Final Energy entry:"
+      !write(*,*) Epot
       
       ! PRINT PADDING TO HAVE BIGGER OUTPUTSSSSSS
  
