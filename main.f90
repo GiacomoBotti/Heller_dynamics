@@ -192,6 +192,9 @@
       open(unit=116,file=velocity,status="old",action="read")
       open(unit=200,file=output,status="unknown",action="write")
 
+      write(200,'(A12,3A20)') '# Time', 'Re[C(t)]', &
+                              'Im[C(t)]', '|C(t)|**2'
+
       steps = 2500
       dt = 8.2682749151502d0 
       padding = 0
@@ -378,18 +381,23 @@
 
       open(unit=222,file=fourierout,status='replace',action='write')
 
+      write(222,'(A12,3A20)') '# Freq','Ang Freq','Re[FFT]','Im[FFT]'
+
       do i = 1, fftsteps
-        write(222,*) frequency(i), omega(i),&
+        write(222,'(F12.5,3ES20.10)') frequency(i), omega(i),&
                      &dreal(fft(i)), aimag(fft(i))
       end do
 
       close(222)
 
       open(unit=333,file=powerout,status='replace',action='write')
+      
+      write(333,'(A12,3A20)') '# Freq','Ang Freq [au]',&
+                              &'Ang Freq [cm**-1]','|FFT|**2'
 
       do i = 1, fftsteps/2+1
-        write(333,*) frequency(i), omega(i), omega(i)*219474.6313705,&
-      &(dreal(fft(i))**2 +aimag(fft(i))**2)
+        write(333,'(F12.5,3ES20.10)') frequency(i), omega(i), &
+          &omega(i)*219474.6313705,(dreal(fft(i))**2 +aimag(fft(i))**2)
       end do
 
       close(333)
