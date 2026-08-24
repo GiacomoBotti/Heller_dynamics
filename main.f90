@@ -17,7 +17,7 @@
       type(C_PTR) :: plan
       integer :: i,j,k,rotrasl
       integer :: nat,ncart,nvib,steps,padding,calculation,fftsteps
-      real*8 :: Epot,L,dt,detA0,time,S,Eref,eta,Etot
+      real*8 :: Epot0,L,dt,detA0,time,S,Eref,eta,Etot
       integer, allocatable, dimension(:) :: mask
       real*8, allocatable, dimension(:) :: xeq,veq,xm,ww,x,v
       real*8, allocatable, dimension(:) :: qrt,prt,qvib,pvib 
@@ -199,6 +199,7 @@
       dt = 8.2682749151502d0 
       padding = 0
       mask(:) = 1
+      Epot0 = 0.d0
       read(111,trajectory)
       fftsteps = steps+padding
 
@@ -250,7 +251,8 @@
       Coft(:) = cmplx(0.d0,0.d0,kind=C_DOUBLE)
       At = cmplx(A0)
       !write(502,*) time, real(At(1,1)), aimag(At(1,1))
-      ph0 = 0.d0!-iu*0.25d0*log(detA0/pi**nvib)
+      !ph0 = 0.d0!-iu*0.25d0*log(detA0/pi**nvib)
+      ph0 = -iu*0.25d0*log(detA0/pi**nvib)
       pht = ph0
       S = 0.d0
       time = 0.d0
@@ -265,7 +267,7 @@
 
       !Eref= +0.25d0*trace + dot_product(p0,p0)/2.d0 +0.25*traceHA
       Eref = 0.5d0*trace
-      Etot = dot_product(p0,p0)/2.d0 + 0.d0 ! Epot of reference
+      Etot = dot_product(p0,p0)/2.d0 + Epot0 ! Epot of reference
  
       write(*,*) "Harmonic ZPE: ", Eref, Eref*Ha2cmm1
       

@@ -1,8 +1,8 @@
 &input_files
     geom_eq="h2o_opt.xyz"
     traj="parsed_log_traj.xyz"
+    velocity="velocity.xyz"
     hess="final_py.out"
-    energy="h2o_energies.dat"
     output="input.dat"
 /
 &options
