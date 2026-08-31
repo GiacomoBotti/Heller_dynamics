@@ -234,7 +234,7 @@
       Hvib(:,:) = Hrt(1:nvib,1:nvib)
 
       q0 = qvib !-qvib
-      p0 = pvib !-pvib
+      p0(:) = mask(:)*pvib(:) !-pvib
 
       A0(:,:) = 0.d0
       invA0(:,:) = 0.d0
