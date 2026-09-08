@@ -483,6 +483,24 @@ power.dat
 
 Here `input.dat` is the correlation-function output because the namelist explicitly sets `output="input.dat"`. The other two names are inherited from the program defaults because `fourierout` and `powerout` are not specified in the input file.
 
+## Post processing
+
+### `find_maxima.py` — Extract Local Maxima
+
+`find_maxima.py` extracts local maxima from whitespace-separated numerical data files and prints their coordinates to the terminal. The columns containing the $x$ and $y$ values can be selected independently using `--xcol` and `--ycol` (with 1-based column numbering), and the analysis can optionally be restricted to a specific $x$ interval using `--xmin` and `--xmax`. The number of reported maxima is controlled with `-n`; by default, the selected maxima are ranked by decreasing $y$ value, while `--ascending` prints them in increasing $x$ order.
+
+```bash
+python find_maxima.py power.dat --xcol 3 --ycol 4 -n 10
+```
+
+To restrict the search to a particular interval:
+
+```bash
+python find_maxima.py power.dat --xcol 3 --ycol 4 -n 5 --xmin 3000 --xmax 4000
+```
+
+A local maximum is defined as a point whose $y$ value is strictly greater than those of its two neighboring points. The script requires **NumPy**.
+
 ## Scope
 
 This code does not perform the electronic-structure calculation itself. It operates on a pre-existing ab initio trajectory, an equilibrium geometry, an equilibrium Hessian, and, for the thawed calculation, a sequence of trajectory Hessians.
