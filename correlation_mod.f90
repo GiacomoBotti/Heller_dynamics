@@ -9,7 +9,7 @@
       implicit none
 
       private
-      public :: correlation,invgen,det_cmplx
+      public :: correlation,invgen,det_cmplx,logdet_cmplx
 
       contains 
 
@@ -157,70 +157,82 @@
 
 !_____Correlation function______________________________________________
 
-      subroutine correlation(nd,time,q0,p0,A0,qt,pt,At,ph0,pht,detA0,Ct)
-      ! < 0 | t >
-      ! nd: system dimensions
-      ! time: simulation time
-      ! q0, p0, A0: initial gaussian center, momentum and width
-      ! qt, pt, At: instantaneous gaussian center, momentum and width
-      ! deltaph: phase difference
-      ! detA0 :: determinant of A0
+!.....Log determinant of a general complex matrix.........................
+      function logdet_cmplx(nd,Amat) result(logdet)
+      ! Returns log(det(A)) without explicitly forming det(A).
        integer, intent(in) :: nd
-       real*8, intent(in) :: time,detA0
+       complex*16, dimension(nd,nd), intent(in) :: Amat
+       complex*16 :: logdet
+       integer, dimension(nd) :: ipiv
+       complex*16, dimension(nd,nd) :: Awork
+       complex*16 :: diag
+       integer :: i,n,info,nperm
+       external ZGETRF
+
+       n = nd
+       Awork = Amat
+       call ZGETRF(n,n,Awork,n,ipiv,info)
+       if (info /= 0) then
+         stop 'logdet_cmplx Matrix is numerically singular!'
+       end if
+
+       logdet = (0.d0,0.d0)
+       nperm = 0
+       do i = 1,nd
+         diag = Awork(i,i)
+         if (abs(diag) == 0.d0) then
+           stop 'logdet_cmplx zero diagonal in LU factorization!'
+         end if
+         logdet = logdet + log(diag)
+         if (ipiv(i) /= i) nperm = nperm + 1
+       end do
+
+       if (mod(nperm,2) /= 0) logdet = logdet + iu*pi
+      end function
+
+      subroutine correlation(nd,time,q0,p0,A0,qt,pt,At,ph0,pht,Ct)
+      ! < 0 | t >
+      ! Gaussian normalization is evaluated in logarithmic form.
+       integer, intent(in) :: nd
+       real*8, intent(in) :: time
        complex*16, intent(in) :: ph0,pht
        real*8, dimension(nd), intent(in) :: q0,p0,qt,pt
-       real*8, dimension(nd,nd) :: A0
+       real*8, dimension(nd,nd), intent(in) :: A0
        complex*16, dimension(nd,nd), intent(in) :: At
 
-       integer :: i
-       real*8 :: p0q0,ptqt,N0,Nt,Adet,eta
-       complex*16 :: q0A0q0,qtAtqt,bWb,Wdet,corr,c,gint,Dph,Ct
+       real*8 :: p0q0,ptqt
+       complex*16 :: q0A0q0,qtAtqt,bWb,Wlogdet,logcorr,c,Dph,Ct
        complex*16, dimension(nd) :: A0q0,Atqt,Wb,bvec
        complex*16, dimension(nd,nd) :: W,invW
 
-        N0 = 1.d0! (detA0/pi**nd)**(1.d0/4.d0)
-        !N0 = (detA0/pi**nd)**(1.d0/4.d0)
-        Adet = det_cmplx(nd,At)
-        Nt = 1.d0!(Adet/pi**nd)**(1.d0/4.d0)
-        !Nt = (Adet/pi**nd)**(1.d0/4.d0)
+       W = At + transpose(A0)
+       invW = invgen(nd,W)
+       Wlogdet = logdet_cmplx(nd,W)
 
-        W = (At + transpose(A0))
-        invW = invgen(nd,W)
-        Wdet = det_cmplx(nd,W)
+       A0q0 = matmul(transpose(A0),q0)
+       q0A0q0 = dot_product(q0,A0q0)
+       Atqt = matmul(At,qt)
+       qtAtqt = dot_product(qt,Atqt)
 
-        Gint = zsqrt((2.d0*pi)**nd/Wdet)
+       p0q0 = dot_product(p0,q0)
+       ptqt = dot_product(pt,qt)
 
-        A0q0 = matmul(transpose(A0),q0)
-        q0A0q0 = dot_product(q0,A0q0)
-        Atqt = matmul(At,qt)
-        qtAtqt = dot_product(qt,Atqt)
+       Dph = iu*(pht-conjg(ph0))
+       c = iu*(p0q0-ptqt) - 0.5d0*qtAtqt - 0.5d0*q0A0q0 + Dph
+       bvec = -iu*(p0-pt) + A0q0 + Atqt
 
-        p0q0 = dot_product(p0,q0)
-        ptqt = dot_product(pt,qt)
+       Wb = matmul(invW,bvec)
+       bWb = dot_product(dconjg(bvec),Wb)
 
-        Dph = iu*(pht-conjg(ph0)) 
-        c = iu*(p0q0-ptqt) -0.5d0*qtAtqt-0.5d0*q0A0q0 +Dph
-        bvec = -iu*(p0-pt) + A0q0 + Atqt
+       ! log(Gint) = 1/2 [ nd*log(2*pi) - log(det(W)) ].
+       ! Combine all exponential factors before evaluating exp().
+       logcorr = 0.5d0*(nd*log(2.d0*pi) - Wlogdet) &
+               + 0.5d0*bWb + c
 
-        Wb = matmul(invW,bvec)
-        bWb = dot_product(dconjg(bvec),Wb)
+       Ct = cdexp(logcorr)
 
-        !write(*,*) bWb
-
-        corr = Gint*Nt*N0*cdexp(0.5d0*bWb + c)
-        !corr = Gint*cdexp(0.5d0*bWb + c - eta*time)
-
-        Ct=corr
-
-       write(200,'(F12.5,3ES20.10)') time,real(corr),&
-                  aimag(corr),dreal(corr*dconjg(corr))
-       !write(201,*) time, pt(1) ,0.d0
-       !write(202,*) time, pt(2) ,0.d0
-       !write(203,*) time, pt(3) ,0.d0
-       !write(204,*) time, real(exp(Dph)),aimag(exp(Dph)),&
-       !             dreal(exp(Dph)*conjg(exp(Dph)))
-       !write(205,*) time, abs(Gint*cdexp(0.5d0*bWb + c)), Nt,N0
-       
+       write(200,'(F12.5,3ES20.10)') time,real(Ct), &
+                  aimag(Ct),dreal(Ct*dconjg(Ct))
       end subroutine
 
       end module
