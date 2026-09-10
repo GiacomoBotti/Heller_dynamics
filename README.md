@@ -1,10 +1,9 @@
 # FRIEZA
 
-**FRIEZA** is a Fortran program for computing Gaussian wavepacket
-autocorrelation functions and power spectra from *ab initio* molecular
-dynamics trajectories. It supports Frozen Gaussian (FGWP),
-Single-Hessian Gaussian (SH-GWP), and Heller Thawed Gaussian (TGWP)
-propagation.
+**FRIEZA** is a Fortran program for computing Gaussian wavepacket autocorrelation functions and power spectra from *ab initio* molecular dynamics trajectories. The code provides two complementary formulations:
+
+- a **normal-mode implementation** supporting Frozen Gaussian (FGWP),  Single-Hessian Gaussian (SH-GWP), and Heller Thawed Gaussian (TGWP)  propagation;
+- a **Cartesian implementation** of the Frozen Gaussian method, intended  in particular for large systems where it is useful to select active atoms and freeze spectator atoms directly in Cartesian space.
 
 ``` text
    ███████╗██████╗ ██╗███████╗███████╗ █████╗
@@ -18,48 +17,128 @@ propagation.
                from ab initio data
 ```
 
-The program supports three Gaussian propagation schemes:
+## Implementations
 
--   **Frozen Gaussian (FG)**: the Gaussian width is kept fixed at its
-    equilibrium harmonic value.
--   **Single-Hessian Gaussian (SH)**: the Gaussian width is propagated
-    using the equilibrium Hessian throughout the trajectory.
--   **Thawed Gaussian (TG)**: the Gaussian width is propagated using a
-    Hessian supplied for every trajectory snapshot.
+### Normal-mode implementation
 
-The correlation function is Fourier transformed with FFTW3. The final
-`power.dat` file contains the positive-frequency power spectrum,
-`|FFT[C(t)]|^2`, with frequency also reported in cm\^-1.
+The normal-mode code works in the vibrational subspace of the molecule, with
+
+``` text
+nvib = 3 * nat - rotrasl
+```
+
+and normally uses `rotrasl = 6` for nonlinear molecules. The equilibrium Cartesian Hessian is mass-weighted, diagonalized, and transformed into a fixed equilibrium normal-mode basis.
+
+The normal-mode implementation supports three propagation schemes:
+- **Frozen Gaussian (FGWP)**: the Gaussian width is kept fixed at its equilibrium harmonic value.
+- **Single-Hessian Gaussian (SH-GWP)**: the Gaussian width is propagated using the equilibrium Hessian throughout the trajectory.
+- **Thawed Gaussian (TGWP)**: the Gaussian width is propagated using the instantaneous Hessian supplied for each trajectory snapshot.
+
+The vibrational mask selects normal modes to follow the trajectory. Modes with `mask(i) = 0` remain at their initial coordinate and momentum.
+
+### Cartesian implementation
+
+The Cartesian code works directly with
+
+``` text
+ncart = 3 * nat
+```
+
+and does not transform trajectory quantities into normal modes. Cartesian coordinates and momenta are mass-weighted in the same way as in the normal-mode implementation.
+
+The Cartesian implementation currently provides **Frozen Gaussian (FGWP) only**. The `calculation` variable and `rotrasl` are retained in the input interface for compatibility, but are ignored by the Cartesian executable. The trajectory-Hessian file is likewise retained for compatibility and is not used in the Cartesian FGWP calculation.
+
+The initial Cartesian Gaussian width is obtained from the matrix square root of the full mass-weighted Cartesian Hessian,
+
+``` text
+A0 = sqrt(H)
+```
+
+where the square root is evaluated from the eigen-decomposition 
+``` text
+H = C diag(lambda) C^T
+A0 = C diag(sqrt(lambda)) C^T
+```
+
+Small negative Hessian eigenvalues can be treated as numerical noise through an explicit threshold. The six translational/rotational zero modes of a nonlinear molecule are regularized with a small positive width so that the full Cartesian Gaussian matrices remain numerically  invertible.
+
+The Cartesian mask is specified per atom rather than per normal mode. If an atom is active (`mask(i) = 1`), its three Cartesian components follow the trajectory. If an atom is inactive (`mask(i) = 0`), its Cartesian center and momentum remain at their initial values. The initial momentum is masked as well, so the correlation function is normalized at `t = 0` for a frozen
+atom subset.
+
+This makes the Cartesian formulation particularly useful when many spectator atoms are present and only a selected group of atoms should be allowed to follow the trajectory.
+
+## Correlation function and numerical stabilization
+
+The Gaussian overlap/correlation function is evaluated by `correlation_mod.f90` using complex matrix inversion with LAPACK.
+
+The determinant factors entering the Gaussian overlap are evaluated in logarithmic form rather than by explicitly multiplying all determinant factors. In particular, the code uses a complex logarithmic determinant for the matrix
+
+``` text
+W = At + transpose(A0)
+```
+
+and combines the logarithmic prefactor with the exponential part before evaluating the final complex exponential. This avoids overflow/underflow problems in high-dimensional Cartesian calculations.
+
+The initial Gaussian determinant is also stored as `logdetA0` rather than as a direct determinant. This is important for large systems because the Cartesian dimension scales as `3 * nat`.
+
+## Large-system Cartesian phase shift
+
+The Cartesian implementation includes an optional fixed phase convention in the Fourier transform to keep high-frequency spectra inside the usable FFT range. The current implementation applies a shift of
+
+``` text
+phase_shift = 0.75 * Eref
+```
+
+where `Eref` is the coherent Cartesian ZPE-like reference constructed from the initial width matrix.
+
+With `FFTW_BACKWARD`, the correlation function is multiplied by
+
+``` text
+C_shift(t) = C(t) exp(+i phase_shift t)
+```
+
+so a spectral feature at energy `E` is moved numerically to
+
+``` text
+E_FFT = E - phase_shift
+```
+
+The frequency grid is then labeled with
+
+``` text
+omega = omega_FFT + phase_shift
+```
+
+Therefore the final spectrum is only **relabelled**; no interpolation or post-processing of the spectral intensities is required.
 
 ## Files
 
-The source is divided into four Fortran components:
+The source is divided into the following components:
 
-  ---------------------------------------------------------------------
-  File                               Purpose
-  ---------------------------------- ----------------------------------
-  `main.f90`  Main program: input parsing, normal-mode transformation, Gaussian propagation, correlation function, and FFT.
+| File | Purpose |
+| --- | --- |
+| `main_nm.f90` | Normal-mode main program: input parsing, mass weighting, normal-mode transformation, FGWP/SH-GWP/TGWP propagation, correlation function, and FFT. |
+| `main_cartesian.f90` | Cartesian Frozen-Gaussian main program: Cartesian mass weighting, full Cartesian Hessian square root, atom masking, correlation function, phase shifting, and FFT. |
+| `correlation_mod.f90` | Gaussian overlap/correlation-function evaluation, complex matrix inversion, determinant evaluation, and logarithmic determinant evaluation. |
+| `constants.f90` | Atomic-unit conversion constants and numerical constants. |
+| `diagonalizer.f` | Symmetric-matrix diagonalization used for the equilibrium Hessian. |
+| `Makefile` | Compilation and linking rules for both executables. |
 
-  `correlation_mod.f90`  Gaussian overlap/correlation-function evaluation and complex matrix inversion using LAPACK.
+The Makefile produces two executables:
 
-  `constants.f90`  Atomic-unit conversion constants and numerical constants.
-
-  `diagonalizer.f` Symmetric-matrix diagonalization used to obtain the equilibrium
-normal modes.
-
-  `Makefile`  Compilation and linking rules.
-  ---------------------------------------------------------------------
-
-The executable produced by the Makefile is `frieza.x`.
+``` text
+frieza_nm.x
+frieza_cart.x
+```
 
 ## Requirements
 
 A Fortran compiler and the following numerical libraries are required:
 
--   `gfortran`
--   FFTW3, including the Fortran 2003 interface (`fftw3.f03`) and library `libfftw3`
--   BLAS
--   LAPACK
+- `gfortran`
+- FFTW3, including the Fortran 2003 interface (`fftw3.f03`) and library   `libfftw3`
+- BLAS
+- LAPACK
 
 The supplied Makefile links with:
 
@@ -71,19 +150,21 @@ and expects the FFTW include file to be available through `/usr/include`.
 
 ## Compilation
 
-The intended build command is:
+The Makefile provides separate targets for the two implementations:
 
 ``` bash
-make compile
+make compile_nm
+make compile_cart
 ```
 
-The executable will be written as:
+which produce:
 
 ``` text
-frieza.x
+frieza_nm.x
+frieza_cart.x
 ```
 
-To remove object files, modules, and executables, the Makefile currently defines the target `.clean`:
+To remove object files, modules, and executables:
 
 ``` bash
 make .clean
@@ -91,27 +172,38 @@ make .clean
 
 ## Running the program
 
-The program reads a file named exactly:
+Both executables read a file named exactly:
 
 ``` text
 input
 ```
 
-and is run as:
+and expect a `banner.txt` file because the banner is printed at startup.
+
+Run the normal-mode implementation with:
 
 ``` bash
-./frieza.x
+./frieza_nm.x
 ```
 
-A `banner.txt` file is also expected by the program because it is printed at startup.
+Run the Cartesian implementation with:
 
-The `input` file contains three Fortran namelists:
+``` bash
+./frieza_cart.x
+```
 
-1.  `input_files`
-2.  `options`
-3.  `trajectory`
+The same namelist structure is used by both implementations:
 
-A complete example input used for an H2O calculation is:
+1. `input_files`
+2. `options`
+3. `trajectory`
+
+The interpretation of `mask` differs between the two executables and is
+described below.
+
+## Input file
+
+A representative input is:
 
 ``` fortran
 &input_files
@@ -119,11 +211,12 @@ A complete example input used for an H2O calculation is:
     traj="parsed_log_traj.xyz"
     velocity="velocity.xyz"
     hess="final_py.out"
-    output="input.dat"
+    output="correlation.dat"
 /
 &options
     calculation = 0
-    eta = 0.d0 !3.4d-5
+    eta = 0.d0
+    rotrasl = 6
 /
 &trajectory
     steps=2500
@@ -135,65 +228,49 @@ A complete example input used for an H2O calculation is:
 /
 ```
 
-Not every namelist variable needs to be specified explicitly. Before reading the namelists, the program defines defaults for several file names and options. In particular, the example above relies on the default equilibrium-Hessian filename `Hessian_flat.out`, the default Fourier-output filename `fourier.dat`, the default power-spectrum filename `power.dat`, and the default `rotrasl = 6`.
-
-For this three-atom nonlinear H2O example,
+The defaults defined by the current programs are:
 
 ``` text
-nvib = 3 * nat - rotrasl = 9 - 6 = 3
-```
-
-so three mask entries are supplied. The first vibrational normal mode is frozen at its initial coordinate and momentum (`mask(1) = 0`), while modes 2 and 3 follow the ab initio trajectory (`mask(2) = mask(3) = 1`).
-
-The example uses `steps = 2500` trajectory points with a time step of `dt = 8.2682749151502` atomic units of time and adds `170000` zero-valued points to the FFT array. Thus,
-
-``` text
-fftsteps = steps + padding = 172500
-```
-
-The calculation is a Frozen Gaussian calculation (`calculation = 0`) with no exponential damping (`eta = 0`). The commented value `3.4d-5` shows an alternative damping parameter that can be activated by replacing `0.d0`.
-
-## Namelist values in the supplied example
-
-  ------------------------------------------------------------------------------
-  Namelist        Variable        Value                   Meaning
-  --------------- --------------- ----------------------- ----------------------
-  `input_files`   `geom_eq`       `h2o_opt.xyz`           Equilibrium geometry
-
-  `input_files`   `traj`          `parsed_log_traj.xyz`   Ab initio trajectory
-
-  `input_files`   `velocity`      `velocity.xyz`          Initial velocities
-
-  `input_files`   `hess`          `final_py.out`          Trajectory Hessian  file
-
-  `input_files`   `output`        `input.dat`             Correlation-function output
-
-  `options`       `calculation`   `0`                     Frozen Gaussian
-
-  `options`       `eta`           `0.d0`                  No damping
-
-  `trajectory`    `steps`         `2500`                  Number of trajectory  steps
-
-  `trajectory`    `dt`            `8.2682749151502d0`     Time step in atomic units
-
-  `trajectory`    `padding`       `170000`                Number of additional  FFT points
-
-  `trajectory`    `mask`          `0, 1, 1`               Freeze mode 1;  propagate modes 2 and 3
-  ------------------------------------------------------------------------------
-
-Important values omitted from the example input are taken from the
-defaults defined in `main.f90`, including:
-
-``` text
+geom_eq    = "equilibrium_geometry.xyz"
 hess_eq    = "Hessian_flat.out"
+traj       = "parsed_log_traj.xyz"
+hess       = "Hessian_traj.out"
+velocity   = "velocity.xyz"
+output     = "correlation.dat"
 fourierout = "fourier.dat"
 powerout   = "power.dat"
-rotrasl    = 6
+calculation = 0
+eta         = 0.d0
+rotrasl     = 6
+steps       = 2500
+dt          = 8.2682749151502d0
+padding     = 0
+mask        = 1
 ```
 
-Because `calculation = 0`, the trajectory Hessian file is not used for
-Gaussian-width propagation in this run even though `hess="final_py.out"`
-is specified. It becomes relevant for the Thawed Gaussian calculation.
+The final values of `steps`, `dt`, `padding`, and `mask` are read from the
+`trajectory` namelist after these defaults are assigned.
+
+### Namelist: `input_files`
+
+| Variable | Meaning |
+| --- | --- |
+| `geom_eq` | Equilibrium geometry file. |
+| `hess_eq` | Equilibrium Hessian file. |
+| `traj` | *Ab initio* Cartesian trajectory. |
+| `hess` | Trajectory Hessian file. Used by the normal-mode TGWP calculation; retained but unused by the Cartesian FGWP implementation. |
+| `velocity` | Initial velocity file. |
+| `output` | Correlation-function output file. |
+| `fourierout` | Complex Fourier-transform output file. |
+| `powerout` | Power-spectrum output file. |
+
+### Namelist: `options`
+
+| Variable | Normal-mode implementation | Cartesian implementation |
+| --- | --- | --- |
+| `calculation` | `0`: FGWP, `1`: SH-GWP, `2` or greater: TGWP. | Ignored; Cartesian code is FGWP only. |
+| `eta` | Exponential damping coefficient. | Exponential damping coefficient. |
+| `rotrasl` | Number of rotational/translational modes removed from the Cartesian Hessian; normally `6` for nonlinear molecules. | Retained for input compatibility; not used in the Cartesian dimensionality, which is always `3 * nat`. |
 
 ## Input files
 
@@ -211,7 +288,7 @@ Atom2   x2   y2   z2
 
 The first line gives the number of atoms. The second line is skipped. Cartesian coordinates are interpreted as **Angstrom** and converted internally to atomic units.
 
-Atomic masses are assigned internally from the element symbol. The currently supported species are:
+Atomic masses are assigned internally from the element symbol. The current supported species are:
 
 ``` text
 H  D  C  N  O  S  P  I
@@ -235,13 +312,17 @@ H(3,3)
 ...
 ```
 
-The program reconstructs the full symmetric matrix from this lower-triangular sequence and mass-weights it according to
+The full symmetric Hessian is reconstructed and mass-weighted according to
 
 ``` text
 H_mw(i,j) = H(i,j) / sqrt(m_i m_j)
 ```
 
-The resulting matrix is diagonalized to obtain the equilibrium normal modes and harmonic frequencies.
+In the normal-mode implementation, the mass-weighted Hessian is diagonalized to obtain the equilibrium normal modes and harmonic frequencies.
+
+In the Cartesian implementation, the mass-weighted Cartesian Hessian is diagonalized only as a numerical route to its matrix square root. The full `3 * nat` Cartesian width is then reconstructed as `A0 = sqrt(H_mw)`.
+
+Because a full Cartesian Hessian contains rigid-body zero modes, small negative eigenvalues are tested against `hessian_neg_tol`, and zero/small modes are assigned the finite `width_floor_factor` width required to keep the Gaussian matrices invertible.
 
 ### 3. Trajectory: `traj`
 
@@ -255,9 +336,9 @@ Atom2   x2   y2   z2   vx2   vy2   vz2
 ...
 ```
 
-Coordinates are interpreted as **Angstrom** and converted internally to atomic units.
+Coordinates are interpreted as **Angstrom** and converted internally to atomic units. Velocities are expected to already be in atomic units; no velocity conversion is applied.
 
-The velocities are used as supplied by the code and are therefore expected to already be in the velocity units used by the dynamics, i.e. atomic units. No velocity conversion is currently applied.
+The normal-mode implementation transforms the mass-weighted Cartesian coordinates and velocities into the fixed equilibrium normal-mode basis. The Cartesian implementation keeps them directly in the mass-weighted Cartesian representation.
 
 ### 4. Initial velocities: `velocity`
 
@@ -271,13 +352,13 @@ Atom2   vx2   vy2   vz2
 ...
 ```
 
-The velocities are projected onto the equilibrium normal modes to construct the initial Gaussian momentum.
+In the normal-mode implementation, these velocities are projected onto the equilibrium normal modes to construct the initial Gaussian momentum.
+
+In the Cartesian implementation, they are mass-weighted directly. The atom mask is then applied to the initial momentum so that frozen atoms have zero initial momentum.
 
 ### 5. Trajectory Hessians: `hess`
 
-This file is only read in **Thawed Gaussian** mode (`calculation = 2` or any value greater than 1).
-
-For each trajectory step, the program expects two header records followed by the lower triangle of an `ncart x ncart` Cartesian Hessian in the same flattened format as the equilibrium Hessian:
+Trajectory Hessians are used only by the normal-mode TGWP calculation. For each trajectory step, two header records are followed by the lower triangle of an `ncart x ncart` Cartesian Hessian:
 
 ``` text
 header line 1
@@ -288,45 +369,79 @@ H(2,2)
 ...
 ```
 
-Each Hessian is mass-weighted and transformed into the equilibrium normal-mode basis before being used to propagate the Gaussian width matrix.
+Each Hessian is mass-weighted and transformed into the fixed equilibrium normal-mode basis before being used to propagate the TGWP width.
 
-## Calculation modes
+The Cartesian executable does not read trajectory Hessians during its FGWP calculation.
 
-The `calculation` variable selects the Gaussian approximation:
+## Calculation modes: normal-mode implementation
 
-     `calculation` Method                    Hessian used for width propagation
-  ---------------- ------------------------- ------------------------------------
-               `0` Frozen Gaussian           Fixed equilibrium width `A0`
-               `1` Single Hessian Gaussian   Equilibrium Hessian
-    `2` or greater Thawed Gaussian           Instantaneous Hessian from `hess`
+The normal-mode `calculation` variable selects:
 
-The initial Gaussian width is diagonal in the equilibrium normal-mode basis and is constructed from the harmonic frequencies:
+| `calculation` | Method | Width propagation |
+| ---: | --- | --- |
+| `0` | Frozen Gaussian | Fixed equilibrium width `A0`. |
+| `1` | Single-Hessian Gaussian | Width propagated using the equilibrium Hessian. |
+| `2` or greater | Thawed Gaussian | Width propagated using the instantaneous trajectory Hessian. |
+
+The initial width is diagonal in the equilibrium normal-mode basis:
 
 ``` text
 A0(i,i) = sqrt(lambda_i)
 ```
 
-where `lambda_i` are the eigenvalues of the mass-weighted equilibrium Hessian. The harmonic frequencies are `sqrt(lambda_i)` for positive eigenvalues.
+where `lambda_i` are the positive vibrational eigenvalues of the mass-weighted
+equilibrium Hessian.
 
-## Mode masking
+## Atom masking: Cartesian implementation
 
-`mask` controls which vibrational normal modes follow the trajectory.
+The Cartesian executable allocates `mask` with `nat` entries. Each atom mask entry is expanded to its three Cartesian components internally:
 
-For a mode with
+``` text
+mask(i) = 1  ->  x_i, y_i, z_i active
+mask(i) = 0  ->  x_i, y_i, z_i frozen
+```
+
+For an active atom, the instantaneous Cartesian trajectory is used. For a frozen atom, the coordinate is held at the initial Cartesian center and the momentum is held at its initial masked value, which is zero for the initial state.
+
+For example, a three-atom system with
+
+``` fortran
+mask(1) = 0
+mask(2) = 1
+mask(3) = 1
+```
+
+is internally represented as
+
+``` text
+0 0 0  1 1 1  1 1 1
+```
+
+The Cartesian mask is therefore an atom-space mask rather than a vibrational-mode mask.
+
+## Mode masking: normal-mode implementation
+
+In the normal-mode executable, `mask` has `nvib` entries. For
 
 ``` text
 mask(i) = 1
 ```
 
-the instantaneous trajectory coordinate and momentum are used. For
+the trajectory coordinate and momentum of normal mode `i` are used. For
 
 ``` text
 mask(i) = 0
 ```
 
-the corresponding coordinate and momentum are kept at their initial values.
+the corresponding coordinate and momentum remain at their initial values.
 
-The mask therefore provides a simple way to restrict the dynamics to a selected subset of normal modes while leaving the remaining modes at their initial values.
+For a nonlinear H2O molecule with `rotrasl = 6`,
+
+``` text
+nvib = 3 * nat - rotrasl = 9 - 6 = 3
+```
+
+so three mask entries are required.
 
 ## Damping
 
@@ -336,7 +451,7 @@ The parameter
 eta
 ```
 
-introduces an exponential damping factor in the stored correlation function:
+introduces an exponential damping factor in the correlation function:
 
 ``` text
 C(t) -> C(t) exp(-eta t)
@@ -346,7 +461,8 @@ with `t` in atomic time units. Setting `eta = 0` disables damping.
 
 ## Time and zero padding
 
-The trajectory contains `steps` propagated snapshots, with time increment `dt`:
+The trajectory contains `steps` propagated snapshots with time increment
+`dt`:
 
 ``` text
 t_k = k * dt
@@ -358,19 +474,13 @@ The FFT length is
 fftsteps = steps + padding
 ```
 
-`padding` is intended to provide zero padding in the Fourier transform. The FFT frequency grid is constructed for both positive and negative frequencies; `power.dat` writes only the non-negative branch.
+`padding` adds zero-valued samples to the FFT array. The FFT frequency grid contains positive and negative frequencies; `power.dat` writes the non-negative branch.
 
 ## Output files
 
 ### Correlation-function output
 
-The autocorrelation function is written to the filename specified by `output`. In the supplied example this is:
-
-``` text
-input.dat
-```
-
-The program default is `correlation.dat`.
+The autocorrelation function is written to the filename specified by `output`.
 
 The file contains:
 
@@ -380,12 +490,12 @@ The file contains:
 
 The columns are:
 
-  Column   Meaning
-  -------- ---------------------------------------------
-  1        Time
-  2        Real part of the correlation function
-  3        Imaginary part of the correlation function
-  4        Squared modulus of the correlation function
+| Column | Meaning |
+| ---: | --- |
+| 1 | Time. |
+| 2 | Real part of the correlation function. |
+| 3 | Imaginary part of the correlation function. |
+| 4 | Squared modulus of the correlation function. |
 
 ### `fourier.dat`
 
@@ -395,11 +505,11 @@ The complex Fourier transform is written as:
 # Freq          Ang Freq            Re[FFT]             Im[FFT]
 ```
 
-where frequency is reported in inverse atomic time units and angular frequency is reported in atomic units.
+The first column is the ordinary FFT frequency in inverse atomic time units; the second is the angular frequency used for output. In the Cartesian implementation the angular-frequency grid includes the fixed phase shift described above.
 
 ### `power.dat`
 
-The final power spectrum is written as:
+The power spectrum is written as:
 
 ``` text
 # Freq          Ang Freq [au]       Ang Freq [cm**-1]   |FFT|**2
@@ -407,48 +517,58 @@ The final power spectrum is written as:
 
 The four columns are:
 
-  Column   Meaning
-  -------- -------------------------------------------------
-  1        Ordinary frequency in inverse atomic time units
-  2        Angular frequency in atomic units
-  3        Angular frequency converted to cm$^{-1}$
-  4        Power spectrum, `|FFT|^2`
+| Column | Meaning                                          |
+| -----: | ------------------------------------------------ |
+|      1 | Ordinary frequency in inverse atomic time units. |
+|      2 | Angular frequency in atomic units.               |
+|      3 | Angular frequency converted to cm^-1.            |
+|      4 | Power spectrum, `FFT^2`                          |
 
-Only frequencies from zero through the Nyquist frequency are written to `power.dat`.
+Only the non-negative FFT branch is written to `power.dat`.
 
 ## Method overview
 
-The calculation proceeds as follows:
+### Normal-mode workflow
 
-1.  Read the equilibrium geometry and assign atomic masses.
-2.  Read and mass-weight the equilibrium Cartesian Hessian.
-3.  Diagonalize the equilibrium Hessian to obtain harmonic normal modes.
-4.  Transform the initial geometry and velocity into mass-weighted  normal-mode coordinates.
-5.  Construct the initial Gaussian width matrix from the harmonic frequencies.
-6.  For each trajectory snapshot, transform the Cartesian coordinates and velocities into the equilibrium normal-mode basis.
-7.  Propagate the Gaussian width matrix according to the selected Frozen, Single-Hessian, or Thawed scheme.
-8.  Evaluate the Gaussian overlap correlation function.
-9.  Apply the optional exponential damping factor.
+1. Read the equilibrium geometry and assign atomic masses.
+2. Read and mass-weight the equilibrium Cartesian Hessian.
+3. Diagonalize the equilibrium Hessian to obtain the equilibrium normal modes.
+4. Transform the initial Cartesian coordinates and velocities into the fixed normal-mode basis.
+5. Construct the initial Gaussian width from the harmonic frequencies.
+6. For each trajectory snapshot, transform the Cartesian coordinates and velocities into the same fixed normal-mode basis.
+7. Propagate the Gaussian width according to the selected FGWP, SH-GWP, or TGWP scheme.
+8. Evaluate the Gaussian overlap correlation function.
+9. Apply the optional exponential damping factor.
 10. Fourier transform the correlation function with FFTW3.
 11. Write the complex Fourier transform and the positive-frequency power spectrum.
 
-## Important implementation notes
+### Cartesian workflow
 
-The code uses the equilibrium normal-mode transformation throughout. Instantaneous Hessians in the thawed calculation are transformed into this fixed normal-mode basis; the normal modes themselves are not recomputed at every trajectory point.
+1. Read the equilibrium geometry and assign atomic masses.
+2. Read and mass-weight the full Cartesian equilibrium Hessian.
+3. Diagonalize the Hessian and construct the full Cartesian coherent width `A0 = sqrt(H_mw)`, with numerical regularization of near-zero modes.
+4. Read the initial velocities and construct the mass-weighted Cartesian initial momentum, applying the atom mask.
+5. For each trajectory snapshot, mass-weight the Cartesian coordinates and velocities and apply the atom mask.
+6. Keep the Gaussian width fixed at `A0`.
+7. Evaluate the Cartesian Gaussian overlap correlation function using the logarithmic determinant formulation.
+8. Apply exponential damping and the Cartesian phase shift.
+9. Fourier transform the shifted correlation function with FFTW3.
+10. Relabel the angular-frequency grid by adding the phase shift so that the reported spectrum remains on the physical frequency scale.
+
 ## Units
 
-The internal dynamics use atomic units. The main external coordinate convention is:
+The internal dynamics use atomic units. The external coordinate convention is:
 
--   geometry and trajectory coordinates: Angstrom on input;
--   velocities: atomic units as supplied;
--   Hessians: values are used as atomic-unit Hessian elements and then mass-weighted;
--   frequencies: converted to cm$^{-1}$ for printed spectral data.
+- geometry and trajectory coordinates: Angstrom on input;
+- velocities: atomic units as supplied;
+- Hessians: atomic-unit Hessian elements, followed by mass weighting;
+- frequencies: converted to cm^-1 for printed spectral data.
 
-The program prints the harmonic frequencies and harmonic zero-point energy before processing the trajectory, which can be used as a basic sanity check on the equilibrium Hessian and normal-mode transformation.
+The normal-mode executable prints the harmonic frequencies and harmonic zero-point energy. The Cartesian executable prints the coherent Cartesian ZPE-like reference used for its phase convention.
 
 ## Example workflow
 
-A typical calculation directory can contain:
+A typical calculation directory contains:
 
 ``` text
 .
@@ -462,45 +582,43 @@ A typical calculation directory can contain:
 ├── constants.f90
 ├── diagonalizer.f
 ├── correlation_mod.f90
-├── main.f90
+├── main_nm.f90
+├── main_cartesian.f90
 └── Makefile
 ```
 
-Then:
+Compile the desired implementation:
 
 ``` bash
-make compile
-./frieza.x
+make compile_nm
+# or
+make compile_cart
 ```
 
-For the supplied example input, the principal results are:
+Then run:
+
+``` bash
+./frieza_nm.x
+```
+
+or
+
+``` bash
+./frieza_cart.x
+```
+
+The principal output files are:
 
 ``` text
-input.dat
+correlation.dat
 fourier.dat
 power.dat
 ```
 
-Here `input.dat` is the correlation-function output because the namelist explicitly sets `output="input.dat"`. The other two names are inherited from the program defaults because `fourierout` and `powerout` are not specified in the input file.
-
-## Post processing
-
-### `find_maxima.py` — Extract Local Maxima
-
-`find_maxima.py` extracts local maxima from whitespace-separated numerical data files and prints their coordinates to the terminal. The columns containing the $x$ and $y$ values can be selected independently using `--xcol` and `--ycol` (with 1-based column numbering), and the analysis can optionally be restricted to a specific $x$ interval using `--xmin` and `--xmax`. The number of reported maxima is controlled with `-n`; by default, the selected maxima are ranked by decreasing $y$ value, while `--ascending` prints them in increasing $x$ order.
-
-```bash
-python find_maxima.py power.dat --xcol 3 --ycol 4 -n 10
-```
-
-To restrict the search to a particular interval:
-
-```bash
-python find_maxima.py power.dat --xcol 3 --ycol 4 -n 5 --xmin 3000 --xmax 4000
-```
-
-A local maximum is defined as a point whose $y$ value is strictly greater than those of its two neighboring points. The script requires **NumPy**.
+Their names can be changed through the corresponding `input_files` namelist variables.
 
 ## Scope
 
-This code does not perform the electronic-structure calculation itself. It operates on a pre-existing ab initio trajectory, an equilibrium geometry, an equilibrium Hessian, and, for the thawed calculation, a sequence of trajectory Hessians.
+FRIEZA does not perform the electronic-structure calculation itself. It operates on pre-existing *ab initio* trajectories, equilibrium geometries, equilibrium Hessians, and, for the normal-mode TGWP calculation, a sequence of trajectory Hessians.
+
+The normal-mode implementation is the complete Gaussian-wavepacket implementation. The Cartesian implementation is intentionally restricted to Frozen Gaussian propagation and is designed primarily for Cartesian atom-based selection of active and spectator atoms in larger systems.
