@@ -17,14 +17,17 @@
       type(C_PTR) :: plan
       integer :: i,j,k,rotrasl
       integer :: nat,ncart,nvib,steps,padding,calculation,fftsteps
+      integer :: ref_type,ref_parity
+      real*8 :: ref_scale
       real*8 :: Epot0,L,dt,logdetA0,time,S,Eref,eta,Etot
       integer, allocatable, dimension(:) :: mask
       real*8, allocatable, dimension(:) :: xeq,veq,xm,ww,x,v
       real*8, allocatable, dimension(:) :: qrt,prt,qvib,pvib 
       real*8, allocatable, dimension(:) :: p0,q0 
       real*8, allocatable, dimension(:,:) :: hesseq,cnorm,tmp,hessian
-      real*8, allocatable, dimension(:,:) :: Hrt,Hvib,A0,HA,invA0
+      real*8, allocatable, dimension(:,:) :: Hrt,Hvib,A0,HA,invA0,Hold
       complex*16 :: dotph,trace,deltaph,ph0,pht,detZi,traceHA,Ct
+      complex*16 :: trace_old
       complex*16, allocatable, dimension(:,:) :: At,Z,Y,invZ,dotAt
       character(len=2), allocatable, dimension(:) :: symb
       character(len=50) :: geom_eq,hess_eq,traj,hess,velocity,output
@@ -62,6 +65,10 @@
  
       read(111,options)
 
+      ref_type = 0
+      ref_parity = 1
+      ref_scale = 1.d0
+
       write(*,*) "Equilibrium geometry from: ", geom_eq
       write(*,*) "Equilibrium Hessian from:  ", hess_eq
       write(*,*) "Trajectory from:           ", traj
@@ -86,7 +93,7 @@
       ncart = 3*nat
       nvib = ncart - rotrasl 
 
-      allocate(symb(nat))                                           
+      allocate(symb(nat),Hold(nvib,nvib))                               
       allocate(xm(ncart),xeq(ncart),veq(ncart),hesseq(ncart,ncart))    
       allocate(x(ncart),v(ncart),hessian(ncart,ncart),mask(nvib))    
       allocate(qrt(ncart),prt(ncart),Hrt(ncart,ncart),dotAt(nvib,nvib))
@@ -201,7 +208,7 @@
       mask(:) = 1
       Epot0 = 0.d0
       read(111,trajectory)
-      fftsteps = steps+padding
+      fftsteps = steps+1+padding
 
       allocate(Coft(fftsteps),fft(fftsteps),frequency(fftsteps)&
                &,omega(fftsteps))
@@ -232,6 +239,8 @@
       qvib(:) = qrt(1:nvib)
       pvib(:) = prt(1:nvib)
       Hvib(:,:) = Hrt(1:nvib,1:nvib)
+      ! --- Initialize previous Hessian
+      Hold=Hvib
 
       q0 = qvib !-qvib
       p0(:) = mask(:)*pvib(:) !-pvib
@@ -239,6 +248,7 @@
       A0(:,:) = 0.d0
       invA0(:,:) = 0.d0
       logdetA0 = 0.d0
+      Z=(0.d0,0.d0)
       do i = 1,nvib
         A0(i,i) = dsqrt(ww(rotrasl+i))
         Z(i,i) = (1.d0,0.d0)!*mask(i)
@@ -270,8 +280,10 @@
       Etot = dot_product(p0,p0)/2.d0 + Epot0 ! Epot of reference
  
       write(*,*) "Harmonic ZPE: ", Eref, Eref*Ha2cmm1
-      
-      call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,ph0,ph0,Ct)
+      call correlation(nvib,time,q0,p0,A0,qvib,p0,At, &
+                              ph0,ph0,Ct)
+      write(200,'(F12.5,3ES20.10)') time,real(Ct), &
+                  aimag(Ct),dreal(Ct*dconjg(Ct))
       Coft(1) = cmplx(Ct,kind=C_DOUBLE)
   
       do k = 1,steps
@@ -283,7 +295,7 @@
         end do
         ! Convert to AU
         x(:) = x(:)/bohr_radius
-        v(:) = v(:)!/toautime!*FROMangTOau_vel Velocities are already in atomic units
+        ! Velocities are already in atomic units
         ! Mass scale
         x(:) = x(:)*dsqrt(xm(:))
         v(:) = v(:)*dsqrt(xm(:))
@@ -299,12 +311,15 @@
            At = cmplx(A0)
         ! SINGLE HESSIAN
         elseif(calculation.eq.1) then
-           !dotAt = +iu*matmul(At,At)+iu*Hvib
-           !At = At + dotAt*dt
-           Y = Y - matmul(Hvib,Z)*dt
+
+           ! --- Second-order propagation of auxiliary matrices
+           Y = Y - 0.5d0*matmul(Hvib,Z)*dt
            Z = Z + Y*dt
+           Y = Y - 0.5d0*matmul(Hvib,Z)*dt
+
+           ! --- Compute the Gaussian width
            invZ = invgen(nvib,Z)
-           At = - iu*matmul(Y,invZ)
+           At = -iu*matmul(Y,invZ)
         ! THAWED GAUSSIAN
         else
            read(115,*)
@@ -323,24 +338,49 @@
            tmp = matmul(hessian,cnorm)
            Hrt = matmul(transpose(cnorm),tmp)
            Hvib(:,:) = Hrt(1:nvib,1:nvib)
-           Y = Y - matmul(Hvib,Z)*dt
+           ! --- Second-order propagation of auxiliary matrices
+           Y = Y - 0.5d0*matmul(Hold,Z)*dt
            Z = Z + Y*dt
+           Y = Y - 0.5d0*matmul(Hvib,Z)*dt
+
+           ! --- Compute the Gaussian width
            invZ = invgen(nvib,Z)
-           At = - iu*matmul(Y,invZ)
+           At = -iu*matmul(Y,invZ)
+
+           ! --- Store Hessian for the next step
+           Hold=Hvib
         end if
-        !write(502,*) time, real(At(1,1)), aimag(At(1,1))
-        ! Second half of the action 
-        !L = dot_product(pvib,pvib)/2.d0 - Epot 
         L = dot_product(pvib,pvib) - Etot
-        trace = (0.d0,0.d0)
-        do i = 1,nvib
-          trace = trace + At(i,i)
+        ! --- Compute the Gaussian trace
+        trace_old=trace
+        trace=(0.d0,0.d0)
+        do i=1,nvib
+          trace=trace+At(i,i)
         end do
-        pht = pht + (L -0.5d0*trace)*dt 
-        !write(*,*) L
+
+        ! --- Second-order phase propagation
+        pht=pht+(L-0.25d0*(trace_old+trace))*dt
+        ! --- Check stationary Gaussian width
+        !if (mod(k,100) == 0 .or. k == 1) then
+        !write(*,*) 'Time:',time
+        !write(*,*) 'Width error:', &
+        !           maxval(abs(At-cmplx(A0,0.d0,kind=8)))
+        !write(*,*) 'Width symmetry:', &
+        !           maxval(abs(At-transpose(At)))
+        !write(*,*) 'Imaginary phase:',aimag(pht)
+        !end if
+        ! --- Check propagated Gaussian normalization
+        !if (mod(k,100) == 0 .or. k == 1) then
+        !   write(*,*) 'Gaussian norm:', &
+        !     exp(-2.d0*aimag(pht))* &
+        !     sqrt(pi**nvib/det_real(nvib,dreal(At)))
+        !end if
         !write(505,*) time, real(pht), aimag(pht)
-      call correlation(nvib,time,q0,p0,A0,qvib,pvib,At,ph0,pht,Ct)
-        Coft(k) = cmplx(Ct*exp(-eta*time) ,kind=C_DOUBLE)
+        call correlation(nvib,time,q0,p0,A0,qvib,pvib,At, &
+                                   ph0,pht,Ct)
+        write(200,'(F12.5,3ES20.10)') time,real(Ct), &
+                  aimag(Ct),dreal(Ct*dconjg(Ct))
+        Coft(k+1) = cmplx(Ct*exp(-eta*time) ,kind=C_DOUBLE)
       end do !k
 
       write(*,*) "@---------------------------------------------------@"
@@ -408,7 +448,7 @@
 
       deallocate(xm,xeq,veq,hesseq,symb,ww,cnorm,tmp,x,v,hessian,q0,p0&
                  ,A0,At,Z,Y,invZ,HA,invA0,frequency,omega,Coft,fft&
-                 ,dotAt)
+                 ,dotAt,Hold)
 
       close(111)
       close(112)

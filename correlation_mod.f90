@@ -10,6 +10,7 @@
 
       private
       public :: correlation,invgen,det_cmplx,logdet_cmplx
+      public :: det_real
 
       contains 
 
@@ -155,8 +156,6 @@
 
       end function
 
-!_____Correlation function______________________________________________
-
 !.....Log determinant of a general complex matrix.........................
       function logdet_cmplx(nd,Amat) result(logdet)
       ! Returns log(det(A)) without explicitly forming det(A).
@@ -187,8 +186,12 @@
          if (ipiv(i) /= i) nperm = nperm + 1
        end do
 
-       if (mod(nperm,2) /= 0) logdet = logdet + iu*pi
+       if (mod(nperm,2) /= 0) then
+         logdet = logdet + iu*pi
+       end if
       end function
+
+!_____Correlation function______________________________________________
 
       subroutine correlation(nd,time,q0,p0,A0,qt,pt,At,ph0,pht,Ct)
       ! < 0 | t >
@@ -231,8 +234,5 @@
 
        Ct = cdexp(logcorr)
 
-       write(200,'(F12.5,3ES20.10)') time,real(Ct), &
-                  aimag(Ct),dreal(Ct*dconjg(Ct))
       end subroutine
-
       end module

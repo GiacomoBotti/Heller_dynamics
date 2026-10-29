@@ -17,3 +17,8 @@
     mask(2) = 1
     mask(3) = 1
 /
+&reference
+    ref_type = 1
+    ref_parity = 1
+    ref_scale = 1.d0
+/
