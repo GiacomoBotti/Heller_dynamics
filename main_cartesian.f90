@@ -27,8 +27,9 @@
       real*8, allocatable, dimension(:,:) :: hesseq,hessian,A0
       real*8, allocatable, dimension(:) :: ww
       real*8, allocatable, dimension(:,:) :: cnorm,Ad
-      complex*16 :: trace,deltaph,ph0,pht,Ct
+      complex*16 :: trace,deltaph,ph0,pht,Ct,trace_old
       complex*16, allocatable, dimension(:,:) :: At,Z,Y,invZ
+      complex*16, allocatable, dimension(:,:) :: Aeig
       character(len=2), allocatable, dimension(:) :: symb
       character(len=50) :: geom_eq,hess_eq,traj,hess,velocity,output
       character(len=50) :: fourierout,powerout
@@ -66,6 +67,7 @@
       rotrasl = 6       ! Retained for input compatibility; unused in Cartesian dynamics.
 
       read(111,options)
+      calculation=0
 
       write(*,*) "Equilibrium geometry from: ", geom_eq
       write(*,*) "Equilibrium Hessian from:  ", hess_eq
@@ -88,6 +90,7 @@
       allocate(At(ncart,ncart),Z(ncart,ncart),Y(ncart,ncart),&
                &invZ(ncart,ncart))
       allocate(ww(ncart),cnorm(ncart,ncart),Ad(ncart,ncart))
+      allocate(Aeig(ncart,ncart))
 
       read(112,*)
       do i = 1, nat
@@ -304,18 +307,60 @@
         v(:) = v(:)*mask_cart(:) + p0(:)*(1-mask_cart(:))
 
 !       Evolves A.
-!       FROZEN GAUSSIAN
-        At = cmplx(A0)
+        ! FROZEN GAUSSIAN
+        if(calculation.eq.0) then
+           At = cmplx(A0)
+        ! SINGLE HESSIAN
+        elseif(calculation.eq.1) then
+
+           ! --- Second-order propagation of auxiliary matrices
+           Y = Y - 0.5d0*matmul(hesseq,Z)*dt
+           Z = Z + Y*dt
+           Y = Y - 0.5d0*matmul(hesseq,Z)*dt
+
+           ! --- Compute the Gaussian width
+           invZ = invgen(ncart,Z)
+           At = -iu*matmul(Y,invZ)
+        end if
+
+      ! --- Check regularized-mode widths
+      if (mod(k,100) == 0 .or. k == 1) then
+
+        Aeig=matmul(transpose(cnorm),matmul(At,cnorm))
+
+        do i=1,ncart
+          if (Ad(i,i) <= dsqrt(eig_floor)*(1.d0+1.d-10)) then
+            write(*,*) 'Regularized mode:',i
+            write(*,*) 'Initial width:',Ad(i,i)
+            write(*,*) 'Current width:',Aeig(i,i)
+          end if
+        end do
+
+      end if
 
 !       Second half of the action.
         L = dot_product(v,v) - Etot
-        trace = (0.d0,0.d0)
-        do i = 1,ncart
-          trace = trace + At(i,i)
+        ! --- Compute the Gaussian trace
+        trace_old=trace
+        trace=(0.d0,0.d0)
+        do i=1,ncart
+          trace=trace+At(i,i)
         end do
-        pht = pht + (L - 0.5d0*trace)*dt
+
+        ! --- Second-order phase propagation
+        pht=pht+(L-0.25d0*(trace_old+trace))*dt
+
+      ! --- Check Gaussian normalization
+      if (mod(k,100) == 0 .or. k == 1) then
+        write(*,*) 'Time:',time
+        write(*,*) 'Gaussian norm:', &
+          exp(-2.d0*aimag(pht))* &
+          sqrt(pi**ncart/det_real(ncart,dreal(At)))
+      end if
 
         call correlation(ncart,time,q0,p0,A0,x,v,At,ph0,pht,Ct)
+        write(200,'(F12.5,3ES20.10)') time,real(Ct), &
+                  aimag(Ct),dreal(Ct*dconjg(Ct))
         Coft(k) = cmplx(Ct*exp(-eta*time+iu*0.75d0*Eref*time)&
                   &,kind=C_DOUBLE)
       end do
